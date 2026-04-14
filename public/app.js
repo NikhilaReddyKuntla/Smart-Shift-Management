@@ -5,11 +5,30 @@ const state = {
   shifts: [],
   dashboard: null,
   pending: null,
-  notifications: [],
   availability: [],
+  activeSection: "overview",
+};
+
+const navConfigByRole = {
+  manager: [
+    { id: "overview", label: "Overview", subtitle: "Staffing health, no-show risk, and confirmation status." },
+    { id: "shifts", label: "Shifts", subtitle: "Publish upcoming shifts and record attendance outcomes." },
+    { id: "requests", label: "Requests", subtitle: "Approve or reject student swap and drop requests." },
+    { id: "messages", label: "Messages", subtitle: "Coordinate staffing updates through group, DM, and shift threads." },
+    { id: "settings", label: "Settings", subtitle: "Run reminder jobs and manage operations controls." },
+  ],
+  student: [
+    { id: "overview", label: "Overview", subtitle: "Track confirmations and key shift notifications." },
+    { id: "shifts", label: "Shifts", subtitle: "Claim open shifts and manage your upcoming assignments." },
+    { id: "requests", label: "Requests", subtitle: "Review your swap and drop request history." },
+    { id: "availability", label: "Availability", subtitle: "Maintain your 30-minute class busy-slot schedule." },
+    { id: "messages", label: "Messages", subtitle: "Chat with the team, manager, or shift-specific thread." },
+    { id: "settings", label: "Settings", subtitle: "Update personal notification preferences." },
+  ],
 };
 
 const el = {
+  heroBanner: document.getElementById("heroBanner"),
   loginPanel: document.getElementById("loginPanel"),
   appPanel: document.getElementById("appPanel"),
   userCards: document.getElementById("userCards"),
@@ -20,9 +39,21 @@ const el = {
   roleText: document.getElementById("roleText"),
   logoutBtn: document.getElementById("logoutBtn"),
   errorBox: document.getElementById("errorBox"),
-  managerView: document.getElementById("managerView"),
-  studentView: document.getElementById("studentView"),
+  navMenu: document.getElementById("navMenu"),
+  sectionTitle: document.getElementById("sectionTitle"),
+  sectionSubtitle: document.getElementById("sectionSubtitle"),
+  managerOverview: document.getElementById("managerOverview"),
+  studentOverview: document.getElementById("studentOverview"),
+  managerShifts: document.getElementById("managerShifts"),
+  studentShifts: document.getElementById("studentShifts"),
+  managerRequests: document.getElementById("managerRequests"),
+  studentRequestsPanel: document.getElementById("studentRequestsPanel"),
+  studentAvailabilityPanel: document.getElementById("studentAvailabilityPanel"),
+  managerAvailabilityPanel: document.getElementById("managerAvailabilityPanel"),
+  managerSettings: document.getElementById("managerSettings"),
+  studentSettings: document.getElementById("studentSettings"),
   managerMetrics: document.getElementById("managerMetrics"),
+  managerPendingConfirmations: document.getElementById("managerPendingConfirmations"),
   createShiftForm: document.getElementById("createShiftForm"),
   pendingSwaps: document.getElementById("pendingSwaps"),
   pendingDrops: document.getElementById("pendingDrops"),
@@ -48,6 +79,7 @@ const el = {
   messageInput: document.getElementById("messageInput"),
   refreshMessagesBtn: document.getElementById("refreshMessagesBtn"),
   messageFeed: document.getElementById("messageFeed"),
+  viewSections: Array.from(document.querySelectorAll(".view-section")),
 };
 
 const days = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
@@ -56,6 +88,10 @@ const halfHourSlots = Array.from({ length: 48 }, (_, idx) => {
   const mm = idx % 2 === 0 ? "00" : "30";
   return `${hh}:${mm}`;
 });
+
+function setVisible(element, visible) {
+  element.classList.toggle("hidden", !visible);
+}
 
 function showError(message) {
   if (!message) {
@@ -78,11 +114,6 @@ function prettyDate(isoString) {
   });
 }
 
-function formatEligibility(reasons) {
-  if (!reasons || reasons.length === 0) return "Eligible";
-  return reasons.join("; ");
-}
-
 async function api(path, options = {}) {
   const headers = {
     ...(options.headers || {}),
@@ -102,8 +133,7 @@ async function api(path, options = {}) {
 
   const data = await response.json().catch(() => ({}));
   if (!response.ok) {
-    const message = data?.error?.message || `Request failed (${response.status})`;
-    throw new Error(message);
+    throw new Error(data?.error?.message || `Request failed (${response.status})`);
   }
   return data;
 }
@@ -119,6 +149,45 @@ function setAuthToken(token) {
   } else {
     localStorage.removeItem("bu_shift_token");
   }
+}
+
+function allowedSections() {
+  if (!state.user) return [];
+  return navConfigByRole[state.user.role] || [];
+}
+
+function ensureValidSection(sectionId) {
+  const allowed = allowedSections();
+  if (allowed.some((item) => item.id === sectionId)) {
+    return sectionId;
+  }
+  return allowed[0]?.id || "overview";
+}
+
+function renderNav() {
+  const allowed = allowedSections();
+  el.navMenu.innerHTML = allowed
+    .map(
+      (item) => `
+      <button class="nav-btn ${state.activeSection === item.id ? "active" : ""}" data-section="${item.id}">
+        ${item.label}
+      </button>
+    `,
+    )
+    .join("");
+}
+
+function setActiveSection(sectionId) {
+  state.activeSection = ensureValidSection(sectionId);
+  renderNav();
+
+  el.viewSections.forEach((section) => {
+    section.classList.toggle("active", section.id === `view-${state.activeSection}`);
+  });
+
+  const current = allowedSections().find((item) => item.id === state.activeSection);
+  el.sectionTitle.textContent = current?.label || "Overview";
+  el.sectionSubtitle.textContent = current?.subtitle || "";
 }
 
 function renderUserCards() {
@@ -146,6 +215,7 @@ function renderManagerMetrics(metrics) {
     ["Recorded No-shows", metrics.noShowCount],
     ["No-show Rate", `${Math.round(metrics.noShowRate * 100)}%`],
   ];
+
   el.managerMetrics.innerHTML = items
     .map(
       ([label, value]) => `
@@ -173,6 +243,32 @@ function getShiftById(shiftId) {
 function renderManagerView() {
   const dashboard = state.dashboard;
   renderManagerMetrics(dashboard.metrics);
+
+  renderList(
+    el.noShowRisk,
+    dashboard.noShowRisk,
+    (shift) => `
+      <div class="list-item">
+        <div class="item-title">${shift.roleNeeded} � ${shift.location}</div>
+        <div class="item-meta">${prettyDate(shift.startAt)} � Assigned: ${shift.assignedUserName || shift.assignedUserId || "Unknown"}</div>
+        <div class="item-meta">Confirmation due: ${prettyDate(shift.confirmationDueAt)}</div>
+      </div>
+    `,
+    "No immediate no-show risks.",
+  );
+
+  renderList(
+    el.managerPendingConfirmations,
+    dashboard.confirmationsPending,
+    (shift) => `
+      <div class="list-item">
+        <div class="item-title">${shift.roleNeeded} � ${shift.location}</div>
+        <div class="item-meta">${prettyDate(shift.startAt)} � Student: ${shift.assignedUserName || shift.assignedUserId}</div>
+        <div class="item-meta">Due: ${prettyDate(shift.confirmationDueAt)}</div>
+      </div>
+    `,
+    "No pending confirmations.",
+  );
 
   renderList(
     el.pendingSwaps,
@@ -214,19 +310,6 @@ function renderManagerView() {
     "No drop approvals pending.",
   );
 
-  renderList(
-    el.noShowRisk,
-    dashboard.noShowRisk,
-    (shift) => `
-      <div class="list-item">
-        <div class="item-title">${shift.roleNeeded} � ${shift.location}</div>
-        <div class="item-meta">${prettyDate(shift.startAt)} � Assigned: ${shift.assignedUserName || shift.assignedUserId || "Unknown"}</div>
-        <div class="item-meta">Confirmation due: ${prettyDate(shift.confirmationDueAt)}</div>
-      </div>
-    `,
-    "No immediate no-show risks.",
-  );
-
   const attendanceCandidates = state.shifts.filter((shift) => shift.assignedUserId);
   renderList(
     el.attendanceList,
@@ -264,6 +347,19 @@ function renderStudentView() {
       </div>
     `,
     "No confirmation tasks pending.",
+  );
+
+  renderList(
+    el.studentNotifications,
+    dashboard.notifications,
+    (note) => `
+      <div class="list-item">
+        <div class="item-title">${note.subject}</div>
+        <div class="item-meta">${note.body}</div>
+        <div class="item-meta">${prettyDate(note.createdAt)}</div>
+      </div>
+    `,
+    "No notifications yet.",
   );
 
   renderList(
@@ -308,19 +404,6 @@ function renderStudentView() {
   );
   const requestItems = [...swapItems, ...dropItems];
   el.studentRequests.innerHTML = requestItems.length > 0 ? `<div class="list">${requestItems.join("")}</div>` : `<p class="hint">No swap/drop requests yet.</p>`;
-
-  renderList(
-    el.studentNotifications,
-    dashboard.notifications,
-    (note) => `
-      <div class="list-item">
-        <div class="item-title">${note.subject}</div>
-        <div class="item-meta">${note.body}</div>
-        <div class="item-meta">${prettyDate(note.createdAt)}</div>
-      </div>
-    `,
-    "No notifications yet.",
-  );
 }
 
 function renderAvailabilityGrid(slots) {
@@ -341,25 +424,49 @@ function renderAvailabilityGrid(slots) {
   el.availabilityGrid.innerHTML = `${head}${rows}`;
 }
 
+function applyRolePanels() {
+  const isManager = state.user?.role === "manager";
+
+  setVisible(el.managerOverview, isManager);
+  setVisible(el.studentOverview, !isManager);
+  setVisible(el.managerShifts, isManager);
+  setVisible(el.studentShifts, !isManager);
+  setVisible(el.managerRequests, isManager);
+  setVisible(el.studentRequestsPanel, !isManager);
+  setVisible(el.managerAvailabilityPanel, isManager);
+  setVisible(el.studentAvailabilityPanel, !isManager);
+  setVisible(el.managerSettings, isManager);
+  setVisible(el.studentSettings, !isManager);
+}
+
 function loadPeerAndThreadOptions() {
   const users = state.users.filter((user) => user.id !== state.user.id);
   const peers = users.filter((candidate) => {
     if (state.user.role === "manager") return candidate.role === "student";
     return candidate.role === "student" || candidate.role === "manager";
   });
+
   el.peerSelect.innerHTML = peers.map((user) => `<option value="${user.id}">${userLabel(user)}</option>`).join("");
   el.threadSelect.innerHTML = state.shifts.map((shift) => `<option value="${shift.id}">${shift.roleNeeded} � ${prettyDate(shift.startAt)}</option>`).join("");
+}
+
+function updateMessageControls() {
+  const channelType = el.channelType.value;
+  el.peerWrapper.classList.toggle("hidden", channelType !== "dm");
+  el.threadWrapper.classList.toggle("hidden", channelType !== "shift_thread");
 }
 
 async function refreshMessages() {
   const channelType = el.channelType.value;
   let path = `/api/messages?channelType=${encodeURIComponent(channelType)}`;
-  if (channelType === "dm") {
+
+  if (channelType === "dm" && el.peerSelect.value) {
     path += `&peerId=${encodeURIComponent(el.peerSelect.value)}`;
   }
-  if (channelType === "shift_thread") {
+  if (channelType === "shift_thread" && el.threadSelect.value) {
     path += `&threadId=${encodeURIComponent(el.threadSelect.value)}`;
   }
+
   const data = await api(path);
   renderList(
     el.messageFeed,
@@ -372,31 +479,23 @@ async function refreshMessages() {
   );
 }
 
-function updateMessageControls() {
-  const channelType = el.channelType.value;
-  el.peerWrapper.classList.toggle("hidden", channelType !== "dm");
-  el.threadWrapper.classList.toggle("hidden", channelType !== "shift_thread");
-}
-
 async function refreshDashboard() {
   showError("");
   const [meRes, shiftsRes] = await Promise.all([api("/api/me"), api("/api/shifts")]);
   state.user = meRes.user;
   state.shifts = shiftsRes.shifts;
 
-  el.welcomeText.textContent = `Welcome, ${state.user.name}`;
+  el.welcomeText.textContent = state.user.name;
   el.roleText.textContent = `Role: ${state.user.role}`;
 
+  applyRolePanels();
+
   if (state.user.role === "manager") {
-    el.managerView.classList.remove("hidden");
-    el.studentView.classList.add("hidden");
     const [dashboard, pending] = await Promise.all([api("/api/dashboard/manager"), api("/api/requests/pending")]);
     state.dashboard = dashboard;
     state.pending = pending;
     renderManagerView();
   } else {
-    el.studentView.classList.remove("hidden");
-    el.managerView.classList.add("hidden");
     const [dashboard, availability] = await Promise.all([api("/api/dashboard/student"), api("/api/availability")]);
     state.dashboard = dashboard;
     state.availability = availability.slots;
@@ -406,6 +505,8 @@ async function refreshDashboard() {
 
   loadPeerAndThreadOptions();
   updateMessageControls();
+  renderNav();
+  setActiveSection(state.activeSection);
   await refreshMessages();
 }
 
@@ -415,9 +516,13 @@ async function login(email, password) {
     body: { email, password },
     headers: {},
   });
+
   setAuthToken(token);
+  state.activeSection = "overview";
+  el.heroBanner.classList.add("hidden");
   el.loginPanel.classList.add("hidden");
   el.appPanel.classList.remove("hidden");
+
   await refreshDashboard();
 }
 
@@ -425,6 +530,7 @@ function logout() {
   setAuthToken("");
   state.user = null;
   el.appPanel.classList.add("hidden");
+  el.heroBanner.classList.remove("hidden");
   el.loginPanel.classList.remove("hidden");
 }
 
@@ -435,6 +541,7 @@ async function bootstrap() {
     renderUserCards();
 
     if (state.token) {
+      el.heroBanner.classList.add("hidden");
       el.loginPanel.classList.add("hidden");
       el.appPanel.classList.remove("hidden");
       await refreshDashboard();
@@ -444,9 +551,16 @@ async function bootstrap() {
   }
 }
 
+el.navMenu.addEventListener("click", (event) => {
+  const btn = event.target.closest("button[data-section]");
+  if (!btn) return;
+  setActiveSection(btn.dataset.section);
+});
+
 el.userCards.addEventListener("click", async (event) => {
   const btn = event.target.closest("button[data-login-email]");
   if (!btn) return;
+
   try {
     await login(btn.dataset.loginEmail, btn.dataset.loginPassword);
   } catch (error) {
@@ -469,15 +583,23 @@ el.createShiftForm.addEventListener("submit", async (event) => {
   event.preventDefault();
   try {
     const form = new FormData(el.createShiftForm);
+    const startAt = new Date(form.get("startAt"));
+    const endAt = new Date(form.get("endAt"));
+
+    if (Number.isNaN(startAt.getTime()) || Number.isNaN(endAt.getTime())) {
+      throw new Error("Please provide valid start and end times.");
+    }
+
     await api("/api/shifts", {
       method: "POST",
       body: {
         roleNeeded: form.get("roleNeeded"),
         location: form.get("location"),
-        startAt: new Date(form.get("startAt")).toISOString(),
-        endAt: new Date(form.get("endAt")).toISOString(),
+        startAt: startAt.toISOString(),
+        endAt: endAt.toISOString(),
       },
     });
+
     el.createShiftForm.reset();
     await refreshDashboard();
   } catch (error) {
@@ -585,6 +707,7 @@ el.upcomingShifts.addEventListener("click", async (event) => {
       if (!candidateId) {
         throw new Error("Select a swap candidate first.");
       }
+
       await api("/api/swaps", {
         method: "POST",
         body: { shiftId, candidateId },
@@ -632,6 +755,7 @@ el.saveAvailabilityBtn.addEventListener("click", async () => {
       method: "PUT",
       body: { slots: selectedSlots },
     });
+
     el.availabilityResult.textContent = `Saved ${selectedSlots.length} busy slots.`;
     await refreshDashboard();
   } catch (error) {
@@ -680,6 +804,7 @@ el.messageForm.addEventListener("submit", async (event) => {
       channelType,
       body: el.messageInput.value,
     };
+
     if (channelType === "dm") {
       payload.recipientId = el.peerSelect.value;
     }
@@ -691,6 +816,7 @@ el.messageForm.addEventListener("submit", async (event) => {
       method: "POST",
       body: payload,
     });
+
     el.messageInput.value = "";
     await refreshMessages();
   } catch (error) {

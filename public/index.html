@@ -11,15 +11,15 @@
     <div class="bg-orb orb-b"></div>
 
     <main class="container">
-      <header class="hero">
+      <header id="heroBanner" class="hero">
         <p class="eyebrow">Boston University Pilot</p>
-        <h1>Student Shift Manager MVP</h1>
+        <h1>Smart Shift Management</h1>
         <p class="subtitle">
-          Release, claim, swap, drop, communication, and no-show prevention in one operational dashboard.
+          A modern operations console for student schedules, staffing coverage, and no-show prevention.
         </p>
       </header>
 
-      <section id="loginPanel" class="panel">
+      <section id="loginPanel" class="panel login-panel">
         <h2>Login</h2>
         <p class="hint">Choose a seeded demo user or sign in manually.</p>
         <div id="userCards" class="user-cards"></div>
@@ -30,154 +30,206 @@
         </form>
       </section>
 
-      <section id="appPanel" class="panel hidden">
-        <div class="topbar">
-          <div>
-            <h2 id="welcomeText">Dashboard</h2>
+      <section id="appPanel" class="app-shell hidden">
+        <aside class="sidebar">
+          <div class="brand-block">
+            <p class="brand-kicker">BU</p>
+            <h2>Shift Console</h2>
+            <p class="hint">Department Pilot</p>
+          </div>
+
+          <div class="sidebar-meta">
+            <p id="welcomeText" class="user-name">Welcome</p>
             <p id="roleText" class="hint"></p>
           </div>
-          <button id="logoutBtn" class="ghost">Log out</button>
-        </div>
 
-        <div id="errorBox" class="error hidden"></div>
+          <nav id="navMenu" class="nav-menu"></nav>
 
-        <div id="managerView" class="hidden">
-          <div class="grid metrics" id="managerMetrics"></div>
+          <button id="logoutBtn" class="ghost logout-btn">Log out</button>
+        </aside>
 
-          <div class="grid two-col">
-            <article class="card">
-              <h3>Create Shift</h3>
-              <form id="createShiftForm" class="stack">
-                <label>
-                  Role Needed
-                  <input name="roleNeeded" placeholder="e.g. library" required />
-                </label>
-                <label>
-                  Location
-                  <input name="location" placeholder="e.g. Mugar Memorial Library" required />
-                </label>
-                <label>
-                  Start
-                  <input name="startAt" type="datetime-local" required />
-                </label>
-                <label>
-                  End
-                  <input name="endAt" type="datetime-local" required />
-                </label>
-                <button type="submit">Publish Shift</button>
-              </form>
-            </article>
-
-            <article class="card">
-              <h3>Manager Actions</h3>
-              <div class="stack">
-                <button id="runReminderBtn">Run Reminder Job</button>
-                <p class="hint">Sends in-app + email reminders (SMS only for opt-in users).</p>
-                <div id="reminderResult" class="hint"></div>
-              </div>
-            </article>
-          </div>
-
-          <div class="grid two-col">
-            <article class="card">
-              <h3>Pending Swap Requests</h3>
-              <div id="pendingSwaps"></div>
-            </article>
-            <article class="card">
-              <h3>Pending Drop Requests</h3>
-              <div id="pendingDrops"></div>
-            </article>
-          </div>
-
-          <div class="grid two-col">
-            <article class="card">
-              <h3>No-show Risk</h3>
-              <div id="noShowRisk"></div>
-            </article>
-            <article class="card">
-              <h3>Attendance Marking</h3>
-              <div id="attendanceList"></div>
-            </article>
-          </div>
-        </div>
-
-        <div id="studentView" class="hidden">
-          <div class="grid two-col">
-            <article class="card">
-              <h3>Student Actions</h3>
-              <label class="toggle">
-                <input id="smsToggle" type="checkbox" />
-                SMS Opt-in
-              </label>
-              <p class="hint">In-app + email are always on in MVP. SMS is optional.</p>
-            </article>
-
-            <article class="card">
-              <h3>Confirmation Tasks</h3>
-              <div id="confirmationTasks"></div>
-            </article>
-          </div>
-
-          <div class="grid two-col">
-            <article class="card">
-              <h3>Claimable Shifts</h3>
-              <div id="claimableShifts"></div>
-            </article>
-            <article class="card">
-              <h3>Upcoming Shifts</h3>
-              <div id="upcomingShifts"></div>
-            </article>
-          </div>
-
-          <div class="grid two-col">
-            <article class="card">
-              <h3>Swap / Drop History</h3>
-              <div id="studentRequests"></div>
-            </article>
-            <article class="card">
-              <h3>Notifications</h3>
-              <div id="studentNotifications"></div>
-            </article>
-          </div>
-
-          <article class="card">
-            <h3>Class Schedule Busy Grid (30-min slots)</h3>
-            <p class="hint">Mark slots as busy. Eligibility checks block shifts overlapping these slots.</p>
-            <div class="availability-wrap">
-              <table id="availabilityGrid"></table>
+        <div class="workspace">
+          <header class="workspace-head">
+            <div>
+              <p class="eyebrow">BU Operations Workspace</p>
+              <h2 id="sectionTitle">Overview</h2>
+              <p id="sectionSubtitle" class="hint"></p>
             </div>
-            <button id="saveAvailabilityBtn">Save Busy Slots</button>
-            <div id="availabilityResult" class="hint"></div>
-          </article>
-        </div>
+          </header>
 
-        <article class="card">
-          <h3>Messaging</h3>
-          <div class="grid three-col">
-            <label>
-              Channel
-              <select id="channelType">
-                <option value="group">Department Group</option>
-                <option value="dm">Direct Message</option>
-                <option value="shift_thread">Shift Thread</option>
-              </select>
-            </label>
-            <label id="peerWrapper" class="hidden">
-              Recipient
-              <select id="peerSelect"></select>
-            </label>
-            <label id="threadWrapper" class="hidden">
-              Shift Thread
-              <select id="threadSelect"></select>
-            </label>
-          </div>
-          <form id="messageForm" class="inline-form">
-            <input id="messageInput" type="text" placeholder="Write a message" required />
-            <button type="submit">Send</button>
-          </form>
-          <button id="refreshMessagesBtn" class="ghost">Refresh Messages</button>
-          <div id="messageFeed" class="feed"></div>
-        </article>
+          <div id="errorBox" class="error hidden"></div>
+
+          <section id="view-overview" class="view-section active">
+            <div id="managerOverview" class="role-panel hidden">
+              <div id="managerMetrics" class="grid metrics"></div>
+              <div class="grid two-col">
+                <article class="card">
+                  <h3>No-show Risk</h3>
+                  <div id="noShowRisk"></div>
+                </article>
+                <article class="card">
+                  <h3>Pending Confirmations</h3>
+                  <div id="managerPendingConfirmations"></div>
+                </article>
+              </div>
+            </div>
+
+            <div id="studentOverview" class="role-panel hidden">
+              <div class="grid two-col">
+                <article class="card">
+                  <h3>Confirmation Tasks</h3>
+                  <div id="confirmationTasks"></div>
+                </article>
+                <article class="card">
+                  <h3>Notifications</h3>
+                  <div id="studentNotifications"></div>
+                </article>
+              </div>
+            </div>
+          </section>
+
+          <section id="view-shifts" class="view-section">
+            <div id="managerShifts" class="role-panel hidden">
+              <div class="grid two-col">
+                <article class="card">
+                  <h3>Create Shift</h3>
+                  <form id="createShiftForm" class="stack">
+                    <label>
+                      Role Needed
+                      <input name="roleNeeded" placeholder="e.g. library" required />
+                    </label>
+                    <label>
+                      Location
+                      <input name="location" placeholder="e.g. Mugar Memorial Library" required />
+                    </label>
+                    <label>
+                      Start
+                      <input name="startAt" type="datetime-local" required />
+                    </label>
+                    <label>
+                      End
+                      <input name="endAt" type="datetime-local" required />
+                    </label>
+                    <button type="submit">Publish Shift</button>
+                  </form>
+                </article>
+
+                <article class="card">
+                  <h3>Attendance Marking</h3>
+                  <div id="attendanceList"></div>
+                </article>
+              </div>
+            </div>
+
+            <div id="studentShifts" class="role-panel hidden">
+              <div class="grid two-col">
+                <article class="card">
+                  <h3>Claimable Shifts</h3>
+                  <div id="claimableShifts"></div>
+                </article>
+                <article class="card">
+                  <h3>Upcoming Shifts</h3>
+                  <div id="upcomingShifts"></div>
+                </article>
+              </div>
+            </div>
+          </section>
+
+          <section id="view-requests" class="view-section">
+            <div id="managerRequests" class="role-panel hidden">
+              <div class="grid two-col">
+                <article class="card">
+                  <h3>Pending Swap Requests</h3>
+                  <div id="pendingSwaps"></div>
+                </article>
+                <article class="card">
+                  <h3>Pending Drop Requests</h3>
+                  <div id="pendingDrops"></div>
+                </article>
+              </div>
+            </div>
+
+            <div id="studentRequestsPanel" class="role-panel hidden">
+              <article class="card">
+                <h3>Swap / Drop History</h3>
+                <div id="studentRequests"></div>
+              </article>
+            </div>
+          </section>
+
+          <section id="view-availability" class="view-section">
+            <div id="studentAvailabilityPanel" class="role-panel hidden">
+              <article class="card">
+                <h3>Class Schedule Busy Grid (30-min slots)</h3>
+                <p class="hint">Mark slots as busy. Eligibility checks block shifts overlapping these slots.</p>
+                <div class="availability-wrap">
+                  <table id="availabilityGrid"></table>
+                </div>
+                <button id="saveAvailabilityBtn">Save Busy Slots</button>
+                <div id="availabilityResult" class="hint"></div>
+              </article>
+            </div>
+
+            <div id="managerAvailabilityPanel" class="role-panel hidden">
+              <article class="card">
+                <h3>Availability Grid</h3>
+                <p class="hint">Student availability is visible via claim/swap eligibility checks in this MVP.</p>
+              </article>
+            </div>
+          </section>
+
+          <section id="view-messages" class="view-section">
+            <article class="card">
+              <h3>Messaging Hub</h3>
+              <div class="grid three-col">
+                <label>
+                  Channel
+                  <select id="channelType">
+                    <option value="group">Department Group</option>
+                    <option value="dm">Direct Message</option>
+                    <option value="shift_thread">Shift Thread</option>
+                  </select>
+                </label>
+                <label id="peerWrapper" class="hidden">
+                  Recipient
+                  <select id="peerSelect"></select>
+                </label>
+                <label id="threadWrapper" class="hidden">
+                  Shift Thread
+                  <select id="threadSelect"></select>
+                </label>
+              </div>
+              <form id="messageForm" class="inline-form">
+                <input id="messageInput" type="text" placeholder="Write a message" required />
+                <button type="submit">Send</button>
+              </form>
+              <button id="refreshMessagesBtn" class="ghost">Refresh Messages</button>
+              <div id="messageFeed" class="feed"></div>
+            </article>
+          </section>
+
+          <section id="view-settings" class="view-section">
+            <div id="managerSettings" class="role-panel hidden">
+              <article class="card">
+                <h3>Operations Settings</h3>
+                <p class="hint">Send reminders to students with unconfirmed upcoming shifts.</p>
+                <button id="runReminderBtn">Run Reminder Job</button>
+                <div id="reminderResult" class="hint"></div>
+              </article>
+            </div>
+
+            <div id="studentSettings" class="role-panel hidden">
+              <article class="card">
+                <h3>Notification Preferences</h3>
+                <label class="toggle">
+                  <input id="smsToggle" type="checkbox" />
+                  SMS Opt-in
+                </label>
+                <p class="hint">In-app + email are always enabled in this MVP.</p>
+              </article>
+            </div>
+          </section>
+        </div>
       </section>
     </main>
 

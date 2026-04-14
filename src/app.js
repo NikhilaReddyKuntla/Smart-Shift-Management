@@ -51,7 +51,6 @@ function buildPublicUserList(state) {
     email: user.email,
     role: user.role,
     qualifications: user.qualifications,
-    demoPassword: user.password,
   }));
 }
 

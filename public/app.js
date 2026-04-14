@@ -1,4 +1,4 @@
-const state = {
+ï»¿const state = {
   token: localStorage.getItem("bu_shift_token") || "",
   user: null,
   users: [],
@@ -88,6 +88,9 @@ const halfHourSlots = Array.from({ length: 48 }, (_, idx) => {
   const mm = idx % 2 === 0 ? "00" : "30";
   return `${hh}:${mm}`;
 });
+const LOCAL_GROUP_MESSAGES_KEY = "bu_shift_group_messages_v1";
+const MESSAGE_POLL_MS = 8000;
+let messagePollTimer = null;
 
 function setVisible(element, visible) {
   element.classList.toggle("hidden", !visible);
@@ -112,6 +115,50 @@ function prettyDate(isoString) {
     hour: "numeric",
     minute: "2-digit",
   });
+}
+
+function getLocalGroupMessages() {
+  try {
+    const raw = localStorage.getItem(LOCAL_GROUP_MESSAGES_KEY);
+    if (!raw) return [];
+    const parsed = JSON.parse(raw);
+    return Array.isArray(parsed) ? parsed : [];
+  } catch (_error) {
+    return [];
+  }
+}
+
+function setLocalGroupMessages(messages) {
+  localStorage.setItem(LOCAL_GROUP_MESSAGES_KEY, JSON.stringify(messages.slice(0, 500)));
+}
+
+function mergeMessages(primary, secondary) {
+  const seen = new Set();
+  const merged = [];
+  for (const message of [...primary, ...secondary]) {
+    const key = message.id || `${message.channelType}|${message.senderId}|${message.sentAt}|${message.body}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    merged.push(message);
+  }
+  return merged.sort((a, b) => new Date(b.sentAt) - new Date(a.sentAt));
+}
+
+function startMessagePolling() {
+  if (messagePollTimer || !state.user) return;
+  messagePollTimer = setInterval(async () => {
+    try {
+      await refreshMessages();
+    } catch (_error) {
+      // Keep background refresh non-blocking.
+    }
+  }, MESSAGE_POLL_MS);
+}
+
+function stopMessagePolling() {
+  if (!messagePollTimer) return;
+  clearInterval(messagePollTimer);
+  messagePollTimer = null;
 }
 
 async function api(path, options = {}) {
@@ -196,10 +243,9 @@ function renderUserCards() {
       (user) => `
       <div class="user-card">
         <div class="item-title">${user.name}</div>
-        <div class="item-meta">${user.role} · ${user.email}</div>
-        <div class="item-meta">Demo password: <code>${user.demoPassword}</code></div>
+        <div class="item-meta">${user.role} Â· ${user.email}</div>
         <div class="item-actions">
-          <button data-login-email="${user.email}" data-login-password="${user.demoPassword}">Login as ${user.role}</button>
+          <button type="button" data-fill-email="${user.email}">Use ${user.email}</button>
         </div>
       </div>
     `,
@@ -249,8 +295,8 @@ function renderManagerView() {
     dashboard.noShowRisk,
     (shift) => `
       <div class="list-item">
-        <div class="item-title">${shift.roleNeeded} · ${shift.location}</div>
-        <div class="item-meta">${prettyDate(shift.startAt)} · Assigned: ${shift.assignedUserName || shift.assignedUserId || "Unknown"}</div>
+        <div class="item-title">${shift.roleNeeded} Â· ${shift.location}</div>
+        <div class="item-meta">${prettyDate(shift.startAt)} Â· Assigned: ${shift.assignedUserName || shift.assignedUserId || "Unknown"}</div>
         <div class="item-meta">Confirmation due: ${prettyDate(shift.confirmationDueAt)}</div>
       </div>
     `,
@@ -262,8 +308,8 @@ function renderManagerView() {
     dashboard.confirmationsPending,
     (shift) => `
       <div class="list-item">
-        <div class="item-title">${shift.roleNeeded} · ${shift.location}</div>
-        <div class="item-meta">${prettyDate(shift.startAt)} · Student: ${shift.assignedUserName || shift.assignedUserId}</div>
+        <div class="item-title">${shift.roleNeeded} Â· ${shift.location}</div>
+        <div class="item-meta">${prettyDate(shift.startAt)} Â· Student: ${shift.assignedUserName || shift.assignedUserId}</div>
         <div class="item-meta">Due: ${prettyDate(shift.confirmationDueAt)}</div>
       </div>
     `,
@@ -278,7 +324,7 @@ function renderManagerView() {
       return `
         <div class="list-item">
           <div class="item-title">Shift ${request.shiftId}</div>
-          <div class="item-meta">Requester: ${request.requesterId} · Candidate: ${request.candidateId}</div>
+          <div class="item-meta">Requester: ${request.requesterId} Â· Candidate: ${request.candidateId}</div>
           <div class="item-meta">${shift ? `${prettyDate(shift.startAt)} at ${shift.location}` : ""}</div>
           <div class="item-actions">
             <button data-swap-decision="approve" data-request-id="${request.id}">Approve</button>
@@ -316,8 +362,8 @@ function renderManagerView() {
     attendanceCandidates,
     (shift) => `
       <div class="list-item">
-        <div class="item-title">${shift.roleNeeded} · ${shift.location}</div>
-        <div class="item-meta">${prettyDate(shift.startAt)} · Student: ${shift.assignedUserName || shift.assignedUserId}</div>
+        <div class="item-title">${shift.roleNeeded} Â· ${shift.location}</div>
+        <div class="item-meta">${prettyDate(shift.startAt)} Â· Student: ${shift.assignedUserName || shift.assignedUserId}</div>
         <div class="item-actions">
           <button data-attendance-mark="present" data-shift-id="${shift.id}">Present</button>
           <button class="danger" data-attendance-mark="no_show" data-shift-id="${shift.id}">No-show</button>
@@ -340,7 +386,7 @@ function renderStudentView() {
     dashboard.confirmationTasks,
     (shift) => `
       <div class="list-item">
-        <div class="item-title">${shift.roleNeeded} · ${shift.location}</div>
+        <div class="item-title">${shift.roleNeeded} Â· ${shift.location}</div>
         <div class="item-meta">${prettyDate(shift.startAt)}</div>
         <div class="item-meta">Confirm by: ${prettyDate(shift.confirmationDueAt)}</div>
         <div class="item-actions"><button data-confirm-shift="${shift.id}">Confirm Shift</button></div>
@@ -367,7 +413,7 @@ function renderStudentView() {
     dashboard.claimableShifts,
     (shift) => `
       <div class="list-item">
-        <div class="item-title">${shift.roleNeeded} · ${shift.location}</div>
+        <div class="item-title">${shift.roleNeeded} Â· ${shift.location}</div>
         <div class="item-meta">${prettyDate(shift.startAt)} - ${prettyDate(shift.endAt)}</div>
         <div class="item-actions"><button data-claim-shift="${shift.id}">Claim Shift</button></div>
       </div>
@@ -380,7 +426,7 @@ function renderStudentView() {
     dashboard.upcomingShifts,
     (shift) => `
       <div class="list-item">
-        <div class="item-title">${shift.roleNeeded} · ${shift.location}</div>
+        <div class="item-title">${shift.roleNeeded} Â· ${shift.location}</div>
         <div class="item-meta">${prettyDate(shift.startAt)} - ${prettyDate(shift.endAt)}</div>
         <div class="item-meta">Confirmed: ${shift.confirmedAt ? "Yes" : "No"}</div>
         <div class="item-actions">
@@ -447,7 +493,7 @@ function loadPeerAndThreadOptions() {
   });
 
   el.peerSelect.innerHTML = peers.map((user) => `<option value="${user.id}">${userLabel(user)}</option>`).join("");
-  el.threadSelect.innerHTML = state.shifts.map((shift) => `<option value="${shift.id}">${shift.roleNeeded} · ${prettyDate(shift.startAt)}</option>`).join("");
+  el.threadSelect.innerHTML = state.shifts.map((shift) => `<option value="${shift.id}">${shift.roleNeeded} Â· ${prettyDate(shift.startAt)}</option>`).join("");
 }
 
 function updateMessageControls() {
@@ -468,12 +514,18 @@ async function refreshMessages() {
   }
 
   const data = await api(path);
+  let messages = data.messages || [];
+  if (channelType === "group") {
+    const localMessages = getLocalGroupMessages();
+    messages = mergeMessages(messages, localMessages);
+    setLocalGroupMessages(messages);
+  }
   renderList(
     el.messageFeed,
-    data.messages,
+    messages,
     (message) => {
       const sender = state.users.find((user) => user.id === message.senderId);
-      return `<div class="message"><div>${message.body}</div><div class="meta">${sender ? sender.name : message.senderId} · ${prettyDate(message.sentAt)}</div></div>`;
+      return `<div class="message"><div>${message.body}</div><div class="meta">${sender ? sender.name : message.senderId} Â· ${prettyDate(message.sentAt)}</div></div>`;
     },
     "No messages yet for this channel.",
   );
@@ -519,16 +571,23 @@ async function login(email, password) {
 
   setAuthToken(token);
   state.activeSection = "overview";
+  el.channelType.value = "group";
   el.heroBanner.classList.add("hidden");
   el.loginPanel.classList.add("hidden");
   el.appPanel.classList.remove("hidden");
 
   await refreshDashboard();
+  startMessagePolling();
 }
 
 function logout() {
+  stopMessagePolling();
   setAuthToken("");
   state.user = null;
+  state.dashboard = null;
+  state.shifts = [];
+  el.channelType.value = "group";
+  el.messageFeed.innerHTML = "";
   el.appPanel.classList.add("hidden");
   el.heroBanner.classList.remove("hidden");
   el.loginPanel.classList.remove("hidden");
@@ -545,6 +604,7 @@ async function bootstrap() {
       el.loginPanel.classList.add("hidden");
       el.appPanel.classList.remove("hidden");
       await refreshDashboard();
+      startMessagePolling();
     }
   } catch (error) {
     showError(error.message);
@@ -557,15 +617,11 @@ el.navMenu.addEventListener("click", (event) => {
   setActiveSection(btn.dataset.section);
 });
 
-el.userCards.addEventListener("click", async (event) => {
-  const btn = event.target.closest("button[data-login-email]");
+el.userCards.addEventListener("click", (event) => {
+  const btn = event.target.closest("button[data-fill-email]");
   if (!btn) return;
-
-  try {
-    await login(btn.dataset.loginEmail, btn.dataset.loginPassword);
-  } catch (error) {
-    showError(error.message);
-  }
+  el.emailInput.value = btn.dataset.fillEmail;
+  el.passwordInput.focus();
 });
 
 el.manualLoginForm.addEventListener("submit", async (event) => {
@@ -812,10 +868,14 @@ el.messageForm.addEventListener("submit", async (event) => {
       payload.threadId = el.threadSelect.value;
     }
 
-    await api("/api/messages", {
+    const result = await api("/api/messages", {
       method: "POST",
       body: payload,
     });
+    if (channelType === "group" && result.message) {
+      const merged = mergeMessages([result.message], getLocalGroupMessages());
+      setLocalGroupMessages(merged);
+    }
 
     el.messageInput.value = "";
     await refreshMessages();
@@ -824,4 +884,14 @@ el.messageForm.addEventListener("submit", async (event) => {
   }
 });
 
+document.addEventListener("visibilitychange", () => {
+  if (!state.user) return;
+  if (document.hidden) {
+    stopMessagePolling();
+  } else {
+    startMessagePolling();
+  }
+});
+
 bootstrap();
+

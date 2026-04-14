@@ -59,7 +59,7 @@ function createApp(store = defaultStore) {
   const app = express();
   app.use(express.json({ limit: "1mb" }));
 
-  const publicDir = path.join(process.cwd(), "public");
+  const publicDir = path.join(__dirname, "..", "public");
   app.use(express.static(publicDir));
 
   function getState() {

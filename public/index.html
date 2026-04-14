@@ -1,0 +1,186 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>BU Shift Manager MVP</title>
+    <link rel="stylesheet" href="/styles.css" />
+  </head>
+  <body>
+    <div class="bg-orb orb-a"></div>
+    <div class="bg-orb orb-b"></div>
+
+    <main class="container">
+      <header class="hero">
+        <p class="eyebrow">Boston University Pilot</p>
+        <h1>Student Shift Manager MVP</h1>
+        <p class="subtitle">
+          Release, claim, swap, drop, communication, and no-show prevention in one operational dashboard.
+        </p>
+      </header>
+
+      <section id="loginPanel" class="panel">
+        <h2>Login</h2>
+        <p class="hint">Choose a seeded demo user or sign in manually.</p>
+        <div id="userCards" class="user-cards"></div>
+        <form id="manualLoginForm" class="inline-form">
+          <input id="emailInput" type="email" placeholder="Email" required />
+          <input id="passwordInput" type="password" placeholder="Password" required />
+          <button type="submit">Sign in</button>
+        </form>
+      </section>
+
+      <section id="appPanel" class="panel hidden">
+        <div class="topbar">
+          <div>
+            <h2 id="welcomeText">Dashboard</h2>
+            <p id="roleText" class="hint"></p>
+          </div>
+          <button id="logoutBtn" class="ghost">Log out</button>
+        </div>
+
+        <div id="errorBox" class="error hidden"></div>
+
+        <div id="managerView" class="hidden">
+          <div class="grid metrics" id="managerMetrics"></div>
+
+          <div class="grid two-col">
+            <article class="card">
+              <h3>Create Shift</h3>
+              <form id="createShiftForm" class="stack">
+                <label>
+                  Role Needed
+                  <input name="roleNeeded" placeholder="e.g. library" required />
+                </label>
+                <label>
+                  Location
+                  <input name="location" placeholder="e.g. Mugar Memorial Library" required />
+                </label>
+                <label>
+                  Start
+                  <input name="startAt" type="datetime-local" required />
+                </label>
+                <label>
+                  End
+                  <input name="endAt" type="datetime-local" required />
+                </label>
+                <button type="submit">Publish Shift</button>
+              </form>
+            </article>
+
+            <article class="card">
+              <h3>Manager Actions</h3>
+              <div class="stack">
+                <button id="runReminderBtn">Run Reminder Job</button>
+                <p class="hint">Sends in-app + email reminders (SMS only for opt-in users).</p>
+                <div id="reminderResult" class="hint"></div>
+              </div>
+            </article>
+          </div>
+
+          <div class="grid two-col">
+            <article class="card">
+              <h3>Pending Swap Requests</h3>
+              <div id="pendingSwaps"></div>
+            </article>
+            <article class="card">
+              <h3>Pending Drop Requests</h3>
+              <div id="pendingDrops"></div>
+            </article>
+          </div>
+
+          <div class="grid two-col">
+            <article class="card">
+              <h3>No-show Risk</h3>
+              <div id="noShowRisk"></div>
+            </article>
+            <article class="card">
+              <h3>Attendance Marking</h3>
+              <div id="attendanceList"></div>
+            </article>
+          </div>
+        </div>
+
+        <div id="studentView" class="hidden">
+          <div class="grid two-col">
+            <article class="card">
+              <h3>Student Actions</h3>
+              <label class="toggle">
+                <input id="smsToggle" type="checkbox" />
+                SMS Opt-in
+              </label>
+              <p class="hint">In-app + email are always on in MVP. SMS is optional.</p>
+            </article>
+
+            <article class="card">
+              <h3>Confirmation Tasks</h3>
+              <div id="confirmationTasks"></div>
+            </article>
+          </div>
+
+          <div class="grid two-col">
+            <article class="card">
+              <h3>Claimable Shifts</h3>
+              <div id="claimableShifts"></div>
+            </article>
+            <article class="card">
+              <h3>Upcoming Shifts</h3>
+              <div id="upcomingShifts"></div>
+            </article>
+          </div>
+
+          <div class="grid two-col">
+            <article class="card">
+              <h3>Swap / Drop History</h3>
+              <div id="studentRequests"></div>
+            </article>
+            <article class="card">
+              <h3>Notifications</h3>
+              <div id="studentNotifications"></div>
+            </article>
+          </div>
+
+          <article class="card">
+            <h3>Class Schedule Busy Grid (30-min slots)</h3>
+            <p class="hint">Mark slots as busy. Eligibility checks block shifts overlapping these slots.</p>
+            <div class="availability-wrap">
+              <table id="availabilityGrid"></table>
+            </div>
+            <button id="saveAvailabilityBtn">Save Busy Slots</button>
+            <div id="availabilityResult" class="hint"></div>
+          </article>
+        </div>
+
+        <article class="card">
+          <h3>Messaging</h3>
+          <div class="grid three-col">
+            <label>
+              Channel
+              <select id="channelType">
+                <option value="group">Department Group</option>
+                <option value="dm">Direct Message</option>
+                <option value="shift_thread">Shift Thread</option>
+              </select>
+            </label>
+            <label id="peerWrapper" class="hidden">
+              Recipient
+              <select id="peerSelect"></select>
+            </label>
+            <label id="threadWrapper" class="hidden">
+              Shift Thread
+              <select id="threadSelect"></select>
+            </label>
+          </div>
+          <form id="messageForm" class="inline-form">
+            <input id="messageInput" type="text" placeholder="Write a message" required />
+            <button type="submit">Send</button>
+          </form>
+          <button id="refreshMessagesBtn" class="ghost">Refresh Messages</button>
+          <div id="messageFeed" class="feed"></div>
+        </article>
+      </section>
+    </main>
+
+    <script src="/app.js"></script>
+  </body>
+</html>

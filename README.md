@@ -1,4 +1,4 @@
-# BU Student Shift Manager MVP
+# BU Student Shift Management MVP
 
 A Vercel-ready web MVP for Boston University student employee shift operations.
 

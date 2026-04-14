@@ -423,6 +423,7 @@ button.danger {
 .conversation-name {
   font-weight: 700;
   font-size: 0.9rem;
+  color: #173245;
 }
 
 .conversation-time {
@@ -431,11 +432,19 @@ button.danger {
 }
 
 .conversation-preview {
-  color: var(--muted);
+  color: #445d68;
   font-size: 0.81rem;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+}
+
+.conversation-item.active .conversation-name {
+  color: #0d6153;
+}
+
+.conversation-item.active .conversation-preview {
+  color: #2a5f58;
 }
 
 .message-room {
@@ -500,7 +509,11 @@ button.danger {
 .bubble-author {
   font-size: 0.78rem;
   font-weight: 700;
-  color: #2f4c57;
+  color: #173848;
+}
+
+.chat-row.mine .bubble-author {
+  color: #0f5f4d;
 }
 
 .bubble-time {

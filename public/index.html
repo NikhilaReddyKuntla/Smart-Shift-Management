@@ -179,32 +179,53 @@
           </section>
 
           <section id="view-messages" class="view-section">
-            <article class="card">
-              <h3>Messaging Hub</h3>
-              <div class="grid three-col">
-                <label>
-                  Channel
-                  <select id="channelType">
-                    <option value="group">Department Group</option>
-                    <option value="dm">Direct Message</option>
-                    <option value="shift_thread">Shift Thread</option>
-                  </select>
-                </label>
-                <label id="peerWrapper" class="hidden">
-                  Recipient
-                  <select id="peerSelect"></select>
-                </label>
-                <label id="threadWrapper" class="hidden">
-                  Shift Thread
-                  <select id="threadSelect"></select>
-                </label>
+            <article class="card message-shell">
+              <aside class="message-inbox">
+                <div class="inbox-head">
+                  <h3>Conversations</h3>
+                  <p class="hint">Group updates and private messages.</p>
+                </div>
+
+                <div class="start-pm">
+                  <label>
+                    Start PM
+                    <select id="pmUserSelect"></select>
+                  </label>
+                  <button id="startPmBtn" type="button">Open PM</button>
+                </div>
+
+                <div class="conversation-group">
+                  <p class="conversation-label">Channels</p>
+                  <div id="channelList" class="conversation-list"></div>
+                </div>
+
+                <div class="conversation-group">
+                  <p class="conversation-label">Direct Messages</p>
+                  <div id="dmList" class="conversation-list"></div>
+                </div>
+
+                <div class="conversation-group">
+                  <p class="conversation-label">Shift Threads</p>
+                  <div id="shiftThreadList" class="conversation-list"></div>
+                </div>
+              </aside>
+
+              <div class="message-room">
+                <header class="room-head">
+                  <div>
+                    <h3 id="chatTitle">Department Group</h3>
+                    <p id="chatSubtitle" class="hint">Conversation for all staffing updates.</p>
+                  </div>
+                  <button id="refreshMessagesBtn" class="ghost" type="button">Refresh</button>
+                </header>
+
+                <div id="messageFeed" class="chat-feed"></div>
+
+                <form id="messageForm" class="chat-compose">
+                  <input id="messageInput" type="text" placeholder="Type a message..." required />
+                  <button type="submit">Send</button>
+                </form>
               </div>
-              <form id="messageForm" class="inline-form">
-                <input id="messageInput" type="text" placeholder="Write a message" required />
-                <button type="submit">Send</button>
-              </form>
-              <button id="refreshMessagesBtn" class="ghost">Refresh Messages</button>
-              <div id="messageFeed" class="feed"></div>
             </article>
           </section>
 

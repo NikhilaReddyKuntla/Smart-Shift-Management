@@ -7,6 +7,14 @@
   pending: null,
   availability: [],
   activeSection: "overview",
+  activeConversation: {
+    channelType: "group",
+    peerId: null,
+    threadId: null,
+  },
+  groupMessagesCache: [],
+  dmMessagesCache: [],
+  shiftThreadCache: {},
 };
 
 const navConfigByRole = {
@@ -70,11 +78,13 @@ const el = {
   availabilityGrid: document.getElementById("availabilityGrid"),
   saveAvailabilityBtn: document.getElementById("saveAvailabilityBtn"),
   availabilityResult: document.getElementById("availabilityResult"),
-  channelType: document.getElementById("channelType"),
-  peerWrapper: document.getElementById("peerWrapper"),
-  peerSelect: document.getElementById("peerSelect"),
-  threadWrapper: document.getElementById("threadWrapper"),
-  threadSelect: document.getElementById("threadSelect"),
+  pmUserSelect: document.getElementById("pmUserSelect"),
+  startPmBtn: document.getElementById("startPmBtn"),
+  channelList: document.getElementById("channelList"),
+  dmList: document.getElementById("dmList"),
+  shiftThreadList: document.getElementById("shiftThreadList"),
+  chatTitle: document.getElementById("chatTitle"),
+  chatSubtitle: document.getElementById("chatSubtitle"),
   messageForm: document.getElementById("messageForm"),
   messageInput: document.getElementById("messageInput"),
   refreshMessagesBtn: document.getElementById("refreshMessagesBtn"),
@@ -485,52 +495,275 @@ function applyRolePanels() {
   setVisible(el.studentSettings, !isManager);
 }
 
-function loadPeerAndThreadOptions() {
-  const users = state.users.filter((user) => user.id !== state.user.id);
-  const peers = users.filter((candidate) => {
-    if (state.user.role === "manager") return candidate.role === "student";
+function getAllowedDmPeers() {
+  const users = state.users.filter((user) => user.id !== state.user?.id);
+  return users.filter((candidate) => {
+    if (state.user?.role === "manager") return candidate.role === "student";
     return candidate.role === "student" || candidate.role === "manager";
   });
-
-  el.peerSelect.innerHTML = peers.map((user) => `<option value="${user.id}">${userLabel(user)}</option>`).join("");
-  el.threadSelect.innerHTML = state.shifts.map((shift) => `<option value="${shift.id}">${shift.roleNeeded} · ${prettyDate(shift.startAt)}</option>`).join("");
 }
 
-function updateMessageControls() {
-  const channelType = el.channelType.value;
-  el.peerWrapper.classList.toggle("hidden", channelType !== "dm");
-  el.threadWrapper.classList.toggle("hidden", channelType !== "shift_thread");
+function getShiftThreadCandidates() {
+  if (!state.user) return [];
+  if (state.user.role === "manager") {
+    return [...state.shifts].sort((a, b) => new Date(a.startAt) - new Date(b.startAt));
+  }
+  return state.shifts
+    .filter((shift) => shift.assignedUserId === state.user.id)
+    .sort((a, b) => new Date(a.startAt) - new Date(b.startAt));
+}
+
+function conversationKey(conversation) {
+  if (conversation.channelType === "dm") return `dm:${conversation.peerId || "none"}`;
+  if (conversation.channelType === "shift_thread") return `shift:${conversation.threadId || "none"}`;
+  return "group:department-main";
+}
+
+function sameConversation(a, b) {
+  return conversationKey(a) === conversationKey(b);
+}
+
+function normalizeConversation(candidate) {
+  const base = {
+    channelType: candidate?.channelType || "group",
+    peerId: candidate?.peerId || null,
+    threadId: candidate?.threadId || null,
+  };
+
+  if (base.channelType === "dm") {
+    if (base.peerId) return base;
+    const firstPeer = getAllowedDmPeers()[0];
+    return firstPeer ? { channelType: "dm", peerId: firstPeer.id, threadId: null } : { channelType: "group", peerId: null, threadId: null };
+  }
+
+  if (base.channelType === "shift_thread") {
+    if (base.threadId) return base;
+    const firstThread = getShiftThreadCandidates()[0];
+    return firstThread ? { channelType: "shift_thread", peerId: null, threadId: firstThread.id } : { channelType: "group", peerId: null, threadId: null };
+  }
+
+  return { channelType: "group", peerId: null, threadId: null };
+}
+
+function getUserByIdLocal(id) {
+  return state.users.find((user) => user.id === id) || null;
+}
+
+function extractDmPeerIdFromThread(threadId) {
+  const ids = String(threadId || "").split("__");
+  return ids.find((id) => id && id !== state.user?.id) || null;
+}
+
+function shortTime(isoString) {
+  const date = new Date(isoString);
+  return date.toLocaleString(undefined, {
+    hour: "numeric",
+    minute: "2-digit",
+  });
+}
+
+async function fetchGroupMessages() {
+  const data = await api("/api/messages?channelType=group");
+  const merged = mergeMessages(data.messages || [], getLocalGroupMessages());
+  state.groupMessagesCache = merged;
+  setLocalGroupMessages(merged);
+}
+
+async function fetchDmMessages() {
+  const data = await api("/api/messages?channelType=dm");
+  state.dmMessagesCache = data.messages || [];
+}
+
+async function fetchShiftThreadMessages(threadId) {
+  if (!threadId) return;
+  const data = await api(`/api/messages?channelType=shift_thread&threadId=${encodeURIComponent(threadId)}`);
+  state.shiftThreadCache[threadId] = data.messages || [];
+}
+
+function getConversationTitle(conversation) {
+  if (conversation.channelType === "group") return "Department Group";
+  if (conversation.channelType === "dm") {
+    const peer = getUserByIdLocal(conversation.peerId);
+    return peer ? peer.name : "Private Message";
+  }
+  const shift = state.shifts.find((entry) => entry.id === conversation.threadId);
+  return shift ? `${shift.roleNeeded} · ${shift.location}` : "Shift Thread";
+}
+
+function getConversationSubtitle(conversation) {
+  if (conversation.channelType === "group") return "Conversation for all staffing updates.";
+  if (conversation.channelType === "dm") {
+    const peer = getUserByIdLocal(conversation.peerId);
+    return peer ? `Private chat with ${peer.name} (${peer.role})` : "Private chat";
+  }
+  const shift = state.shifts.find((entry) => entry.id === conversation.threadId);
+  return shift ? `Shift starts ${prettyDate(shift.startAt)}` : "Discuss swap, drop, and shift details.";
+}
+
+function buildDmLatestMap() {
+  const map = new Map();
+  for (const message of state.dmMessagesCache) {
+    const peerId = extractDmPeerIdFromThread(message.threadId);
+    if (!peerId) continue;
+    const existing = map.get(peerId);
+    if (!existing || new Date(message.sentAt) > new Date(existing.sentAt)) {
+      map.set(peerId, message);
+    }
+  }
+  return map;
+}
+
+function renderConversationItems(container, items, emptyLabel) {
+  if (!items.length) {
+    container.innerHTML = `<p class="hint">${emptyLabel}</p>`;
+    return;
+  }
+
+  container.innerHTML = items
+    .map((item) => {
+      const activeClass = item.active ? "active" : "";
+      const timeMarkup = item.time ? `<span class="conversation-time">${item.time}</span>` : "";
+      return `
+        <button type="button" class="conversation-item ${activeClass}" data-conv-channel="${item.channelType}" data-conv-peer="${item.peerId || ""}" data-conv-thread="${item.threadId || ""}">
+          <div class="conversation-top">
+            <span class="conversation-name">${item.name}</span>
+            ${timeMarkup}
+          </div>
+          <div class="conversation-preview">${item.preview}</div>
+        </button>
+      `;
+    })
+    .join("");
+}
+
+function renderConversationLists() {
+  const dmLatest = buildDmLatestMap();
+  const groupLatest = state.groupMessagesCache[0] || null;
+
+  renderConversationItems(
+    el.channelList,
+    [
+      {
+        channelType: "group",
+        peerId: null,
+        threadId: null,
+        name: "Department Group",
+        preview: groupLatest ? `${getUserByIdLocal(groupLatest.senderId)?.name || "Unknown"}: ${groupLatest.body}` : "No messages yet",
+        time: groupLatest ? shortTime(groupLatest.sentAt) : "",
+        active: sameConversation(state.activeConversation, { channelType: "group", peerId: null, threadId: null }),
+      },
+    ],
+    "No channels yet.",
+  );
+
+  const dmItems = getAllowedDmPeers()
+    .map((peer) => {
+      const latest = dmLatest.get(peer.id) || null;
+      return {
+        channelType: "dm",
+        peerId: peer.id,
+        threadId: null,
+        name: peer.name,
+        preview: latest ? latest.body : "Start a private message",
+        time: latest ? shortTime(latest.sentAt) : "",
+        active: sameConversation(state.activeConversation, { channelType: "dm", peerId: peer.id, threadId: null }),
+        sortKey: latest ? new Date(latest.sentAt).getTime() : 0,
+      };
+    })
+    .sort((a, b) => {
+      if (b.sortKey !== a.sortKey) return b.sortKey - a.sortKey;
+      return a.name.localeCompare(b.name);
+    });
+
+  renderConversationItems(el.dmList, dmItems, "No direct message peers available.");
+
+  const shiftItems = getShiftThreadCandidates().map((shift) => {
+    const latest = (state.shiftThreadCache[shift.id] || [])[0] || null;
+    return {
+      channelType: "shift_thread",
+      peerId: null,
+      threadId: shift.id,
+      name: `${shift.roleNeeded} · ${shift.location}`,
+      preview: latest ? latest.body : `Starts ${prettyDate(shift.startAt)}`,
+      time: latest ? shortTime(latest.sentAt) : "",
+      active: sameConversation(state.activeConversation, { channelType: "shift_thread", peerId: null, threadId: shift.id }),
+    };
+  });
+
+  renderConversationItems(el.shiftThreadList, shiftItems, "No shift threads yet.");
+
+  el.pmUserSelect.innerHTML = getAllowedDmPeers().map((peer) => `<option value="${peer.id}">${peer.name} (${peer.role})</option>`).join("");
+}
+
+function getActiveConversationMessages() {
+  if (state.activeConversation.channelType === "group") {
+    return state.groupMessagesCache;
+  }
+  if (state.activeConversation.channelType === "dm") {
+    return state.dmMessagesCache.filter((message) => extractDmPeerIdFromThread(message.threadId) === state.activeConversation.peerId);
+  }
+  return state.shiftThreadCache[state.activeConversation.threadId] || [];
+}
+
+function renderChatHeader() {
+  el.chatTitle.textContent = getConversationTitle(state.activeConversation);
+  el.chatSubtitle.textContent = getConversationSubtitle(state.activeConversation);
+
+  if (state.activeConversation.channelType === "dm") {
+    el.messageInput.placeholder = "Write a private message...";
+  } else if (state.activeConversation.channelType === "shift_thread") {
+    el.messageInput.placeholder = "Write in this shift thread...";
+  } else {
+    el.messageInput.placeholder = "Write a message to the group...";
+  }
+}
+
+function renderChatMessages(messages) {
+  const sorted = [...messages].sort((a, b) => new Date(a.sentAt) - new Date(b.sentAt));
+  if (!sorted.length) {
+    el.messageFeed.innerHTML = `<div class="chat-placeholder">No messages yet. Start the conversation.</div>`;
+    return;
+  }
+
+  el.messageFeed.innerHTML = sorted
+    .map((message) => {
+      const mine = message.senderId === state.user?.id;
+      const sender = getUserByIdLocal(message.senderId);
+      const author = mine ? "You" : sender?.name || "Unknown";
+      return `
+        <div class="chat-row ${mine ? "mine" : "theirs"}">
+          <div class="chat-bubble">
+            <div class="bubble-meta">
+              <span class="bubble-author">${author}</span>
+              <span class="bubble-time">${shortTime(message.sentAt)}</span>
+            </div>
+            <div class="bubble-text">${message.body}</div>
+          </div>
+        </div>
+      `;
+    })
+    .join("");
+
+  el.messageFeed.scrollTop = el.messageFeed.scrollHeight;
+}
+
+async function openConversation(conversation) {
+  state.activeConversation = normalizeConversation(conversation);
+  await refreshMessages();
 }
 
 async function refreshMessages() {
-  const channelType = el.channelType.value;
-  let path = `/api/messages?channelType=${encodeURIComponent(channelType)}`;
+  await Promise.all([fetchGroupMessages(), fetchDmMessages()]);
 
-  if (channelType === "dm" && el.peerSelect.value) {
-    path += `&peerId=${encodeURIComponent(el.peerSelect.value)}`;
-  }
-  if (channelType === "shift_thread" && el.threadSelect.value) {
-    path += `&threadId=${encodeURIComponent(el.threadSelect.value)}`;
+  if (state.activeConversation.channelType === "shift_thread") {
+    await fetchShiftThreadMessages(state.activeConversation.threadId);
   }
 
-  const data = await api(path);
-  let messages = data.messages || [];
-  if (channelType === "group") {
-    const localMessages = getLocalGroupMessages();
-    messages = mergeMessages(messages, localMessages);
-    setLocalGroupMessages(messages);
-  }
-  renderList(
-    el.messageFeed,
-    messages,
-    (message) => {
-      const sender = state.users.find((user) => user.id === message.senderId);
-      return `<div class="message"><div>${message.body}</div><div class="meta">${sender ? sender.name : message.senderId} · ${prettyDate(message.sentAt)}</div></div>`;
-    },
-    "No messages yet for this channel.",
-  );
+  state.activeConversation = normalizeConversation(state.activeConversation);
+  renderConversationLists();
+  renderChatHeader();
+  renderChatMessages(getActiveConversationMessages());
 }
-
 async function refreshDashboard() {
   showError("");
   const [meRes, shiftsRes] = await Promise.all([api("/api/me"), api("/api/shifts")]);
@@ -555,8 +788,7 @@ async function refreshDashboard() {
     renderAvailabilityGrid(availability.slots);
   }
 
-  loadPeerAndThreadOptions();
-  updateMessageControls();
+  state.activeConversation = normalizeConversation(state.activeConversation);
   renderNav();
   setActiveSection(state.activeSection);
   await refreshMessages();
@@ -571,7 +803,10 @@ async function login(email, password) {
 
   setAuthToken(token);
   state.activeSection = "overview";
-  el.channelType.value = "group";
+  state.activeConversation = { channelType: "group", peerId: null, threadId: null };
+  state.groupMessagesCache = [];
+  state.dmMessagesCache = [];
+  state.shiftThreadCache = {};
   el.heroBanner.classList.add("hidden");
   el.loginPanel.classList.add("hidden");
   el.appPanel.classList.remove("hidden");
@@ -586,7 +821,10 @@ function logout() {
   state.user = null;
   state.dashboard = null;
   state.shifts = [];
-  el.channelType.value = "group";
+  state.groupMessagesCache = [];
+  state.dmMessagesCache = [];
+  state.shiftThreadCache = {};
+  state.activeConversation = { channelType: "group", peerId: null, threadId: null };
   el.messageFeed.innerHTML = "";
   el.appPanel.classList.add("hidden");
   el.heroBanner.classList.remove("hidden");
@@ -819,26 +1057,43 @@ el.saveAvailabilityBtn.addEventListener("click", async () => {
   }
 });
 
-el.channelType.addEventListener("change", async () => {
+el.channelList.addEventListener("click", async (event) => {
+  const btn = event.target.closest("button[data-conv-channel]");
+  if (!btn) return;
   try {
-    updateMessageControls();
-    await refreshMessages();
+    await openConversation({ channelType: btn.dataset.convChannel, peerId: btn.dataset.convPeer || null, threadId: btn.dataset.convThread || null });
   } catch (error) {
     showError(error.message);
   }
 });
 
-el.peerSelect.addEventListener("change", async () => {
+el.dmList.addEventListener("click", async (event) => {
+  const btn = event.target.closest("button[data-conv-channel]");
+  if (!btn) return;
   try {
-    await refreshMessages();
+    await openConversation({ channelType: btn.dataset.convChannel, peerId: btn.dataset.convPeer || null, threadId: btn.dataset.convThread || null });
   } catch (error) {
     showError(error.message);
   }
 });
 
-el.threadSelect.addEventListener("change", async () => {
+el.shiftThreadList.addEventListener("click", async (event) => {
+  const btn = event.target.closest("button[data-conv-channel]");
+  if (!btn) return;
   try {
-    await refreshMessages();
+    await openConversation({ channelType: btn.dataset.convChannel, peerId: btn.dataset.convPeer || null, threadId: btn.dataset.convThread || null });
+  } catch (error) {
+    showError(error.message);
+  }
+});
+
+el.startPmBtn.addEventListener("click", async () => {
+  try {
+    const peerId = el.pmUserSelect.value;
+    if (!peerId) {
+      throw new Error("Pick a user first to start PM.");
+    }
+    await openConversation({ channelType: "dm", peerId, threadId: null });
   } catch (error) {
     showError(error.message);
   }
@@ -855,26 +1110,40 @@ el.refreshMessagesBtn.addEventListener("click", async () => {
 el.messageForm.addEventListener("submit", async (event) => {
   event.preventDefault();
   try {
-    const channelType = el.channelType.value;
+    const body = el.messageInput.value.trim();
+    if (!body) {
+      throw new Error("Message cannot be empty.");
+    }
+
     const payload = {
-      channelType,
-      body: el.messageInput.value,
+      channelType: state.activeConversation.channelType,
+      body,
     };
 
-    if (channelType === "dm") {
-      payload.recipientId = el.peerSelect.value;
+    if (state.activeConversation.channelType === "dm") {
+      payload.recipientId = state.activeConversation.peerId;
     }
-    if (channelType === "shift_thread") {
-      payload.threadId = el.threadSelect.value;
+    if (state.activeConversation.channelType === "shift_thread") {
+      payload.threadId = state.activeConversation.threadId;
     }
 
     const result = await api("/api/messages", {
       method: "POST",
       body: payload,
     });
-    if (channelType === "group" && result.message) {
-      const merged = mergeMessages([result.message], getLocalGroupMessages());
-      setLocalGroupMessages(merged);
+
+    if (state.activeConversation.channelType === "group" && result.message) {
+      state.groupMessagesCache = mergeMessages([result.message], state.groupMessagesCache);
+      setLocalGroupMessages(mergeMessages([result.message], getLocalGroupMessages()));
+    }
+
+    if (state.activeConversation.channelType === "dm" && result.message) {
+      state.dmMessagesCache = mergeMessages([result.message], state.dmMessagesCache);
+    }
+
+    if (state.activeConversation.channelType === "shift_thread" && result.message) {
+      const threadId = state.activeConversation.threadId;
+      state.shiftThreadCache[threadId] = mergeMessages([result.message], state.shiftThreadCache[threadId] || []);
     }
 
     el.messageInput.value = "";
@@ -894,4 +1163,10 @@ document.addEventListener("visibilitychange", () => {
 });
 
 bootstrap();
+
+
+
+
+
+
 

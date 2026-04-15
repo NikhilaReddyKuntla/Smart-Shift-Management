@@ -1,18 +1,18 @@
 @import url("https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700&family=Sora:wght@500;700&display=swap");
 
 :root {
-  --bg: #f1f5f7;
-  --ink: #16242d;
-  --muted: #5f727c;
-  --line: #d4dde2;
+  --bg: #eaf1f5;
+  --ink: #0f1d2a;
+  --muted: #41586a;
+  --line: #bfd0db;
   --panel: #ffffff;
-  --sidebar: #0f2a3c;
-  --sidebar-soft: #17384f;
-  --accent: #1d9a80;
-  --accent-2: #f08a3d;
-  --danger: #c24031;
+  --sidebar: #0b2333;
+  --sidebar-soft: #14364d;
+  --accent: #0f7f69;
+  --accent-2: #c86928;
+  --danger: #b13a2d;
   --radius: 14px;
-  --shadow: 0 12px 30px rgba(10, 35, 45, 0.08);
+  --shadow: 0 14px 34px rgba(10, 30, 45, 0.12);
 }
 
 * {
@@ -23,10 +23,17 @@ body {
   margin: 0;
   font-family: "Plus Jakarta Sans", "Segoe UI", sans-serif;
   color: var(--ink);
-  background: radial-gradient(circle at 16% -8%, #dff7f0 0%, transparent 32%),
-    radial-gradient(circle at 95% 12%, #ffe5d0 0%, transparent 26%),
-    linear-gradient(160deg, #edf3f6 0%, #f6f8fa 52%, #ebf2f3 100%);
+  background: radial-gradient(circle at 10% -5%, #c9efe4 0%, transparent 34%),
+    radial-gradient(circle at 96% 10%, #ffd7b8 0%, transparent 28%),
+    linear-gradient(165deg, #e6edf3 0%, #f4f8fb 48%, #e4edf1 100%);
   min-height: 100vh;
+}
+
+body.signed-out {
+  min-height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
 }
 
 .bg-orb {
@@ -40,7 +47,7 @@ body {
 .orb-a {
   width: 320px;
   height: 320px;
-  background: #26c5a1;
+  background: #1cb58f;
   top: -120px;
   right: -90px;
 }
@@ -48,7 +55,7 @@ body {
 .orb-b {
   width: 250px;
   height: 250px;
-  background: #ff9e57;
+  background: #ef8b42;
   bottom: -60px;
   left: -50px;
 }
@@ -58,8 +65,25 @@ body {
   margin: 1rem auto 1.8rem;
 }
 
+body.signed-out .container {
+  width: min(900px, calc(100% - 1.5rem));
+  margin: 0 auto;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 1rem;
+  padding: 1.2rem 0;
+}
+
 .hero {
   margin-bottom: 0.8rem;
+}
+
+body.signed-out .hero {
+  width: min(720px, 100%);
+  text-align: center;
+  margin: 0;
 }
 
 .eyebrow {
@@ -78,6 +102,17 @@ h3 {
   margin: 0.28rem 0;
 }
 
+h1 {
+  font-size: clamp(2rem, 4vw, 2.8rem);
+  line-height: 1.08;
+  letter-spacing: -0.02em;
+  color: #0d2638;
+  background: linear-gradient(115deg, #0b2b41 0%, #0f7f69 56%, #c86928 100%);
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+}
+
 .subtitle,
 .hint {
   margin: 0.35rem 0;
@@ -85,7 +120,7 @@ h3 {
 }
 
 .panel {
-  background: rgba(255, 255, 255, 0.92);
+  background: rgba(255, 255, 255, 0.95);
   border: 1px solid var(--line);
   border-radius: var(--radius);
   padding: 1rem;
@@ -94,10 +129,33 @@ h3 {
 
 .login-panel {
   max-width: 560px;
+  margin: 0;
+  width: min(560px, 100%);
+  background: linear-gradient(175deg, #ffffff 0%, #f4fafb 100%);
+  border-color: #b9cdda;
 }
 
 .login-panel form {
   margin-top: 0.65rem;
+}
+
+.login-panel h2 {
+  font-size: 1.6rem;
+}
+
+body.signed-out .login-panel h2,
+body.signed-out .login-panel .hint {
+  text-align: center;
+}
+
+.login-panel .inline-form {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 0.58rem;
+}
+
+.login-panel .inline-form button {
+  width: 100%;
 }
 
 .app-shell {
@@ -108,12 +166,12 @@ h3 {
   overflow: hidden;
   min-height: calc(100vh - 3rem);
   box-shadow: var(--shadow);
-  background: #f7fbfc;
+  background: #eef5f8;
 }
 
 .sidebar {
-  background: linear-gradient(180deg, var(--sidebar) 0%, #0b2331 100%);
-  color: #eaf4fb;
+  background: linear-gradient(180deg, var(--sidebar) 0%, #071d2a 100%);
+  color: #e8f6ff;
   padding: 1rem 0.9rem;
   display: flex;
   flex-direction: column;
@@ -132,11 +190,11 @@ h3 {
   font-size: 0.68rem;
   letter-spacing: 0.08em;
   text-transform: uppercase;
-  color: #89d9c7;
+  color: #8fdac8;
 }
 
 .sidebar .hint {
-  color: #9db8c6;
+  color: #b5ccda;
 }
 
 .sidebar-meta {
@@ -158,7 +216,7 @@ h3 {
 
 .nav-btn {
   background: transparent;
-  color: #cee4ef;
+  color: #d8ebf6;
   border: 1px solid transparent;
   border-radius: 10px;
   text-align: left;
@@ -173,7 +231,7 @@ h3 {
 }
 
 .nav-btn.active {
-  background: linear-gradient(130deg, #1f806e, #16695d);
+  background: linear-gradient(130deg, #11886f, #0e6f5d);
   color: #effff9;
   border-color: rgba(196, 245, 225, 0.32);
 }
@@ -184,7 +242,7 @@ h3 {
 
 .workspace {
   padding: 1rem;
-  background: #f7fbfc;
+  background: linear-gradient(180deg, #f7fbfd 0%, #eff6f9 100%);
 }
 
 .workspace-head {
@@ -207,9 +265,9 @@ h3 {
 .card {
   border: 1px solid var(--line);
   border-radius: 12px;
-  background: #ffffff;
+  background: linear-gradient(180deg, #ffffff 0%, #fbfeff 100%);
   padding: 0.8rem;
-  box-shadow: 0 6px 20px rgba(14, 40, 48, 0.05);
+  box-shadow: 0 8px 22px rgba(14, 40, 48, 0.07);
 }
 
 .grid {
@@ -231,9 +289,9 @@ h3 {
 }
 
 .metric {
-  border: 1px solid #dce7e6;
+  border: 1px solid #cfe0df;
   border-radius: 12px;
-  background: linear-gradient(165deg, #ffffff 0%, #f1faf8 100%);
+  background: linear-gradient(165deg, #ffffff 0%, #eef8f5 100%);
   padding: 0.74rem;
 }
 
@@ -293,6 +351,15 @@ textarea {
   border: 1px solid var(--line);
   border-radius: 9px;
   background: #fff;
+  color: var(--ink);
+}
+
+input:focus-visible,
+select:focus-visible,
+textarea:focus-visible,
+button:focus-visible {
+  outline: 2px solid #147e68;
+  outline-offset: 1px;
 }
 
 button {
@@ -300,18 +367,19 @@ button {
   border: 1px solid var(--accent);
   border-radius: 9px;
   background: var(--accent);
-  color: #f5fffc;
+  color: #f3fffb;
   font-weight: 700;
   cursor: pointer;
 }
 
 button:hover {
-  filter: brightness(0.96);
+  filter: brightness(0.94);
 }
 
 button.ghost {
   background: #ffffff;
-  color: var(--accent);
+  color: #0d6a58;
+  border-color: #9eb9c7;
 }
 
 button.danger {
@@ -325,9 +393,9 @@ button.danger {
 }
 
 .list-item {
-  border: 1px solid #dce6e8;
+  border: 1px solid #cfdee5;
   border-radius: 10px;
-  background: #fbfdfd;
+  background: #fbfeff;
   padding: 0.56rem;
 }
 
@@ -357,7 +425,7 @@ button.danger {
 .message-inbox {
   border: 1px solid var(--line);
   border-radius: 12px;
-  background: #f7fbfd;
+  background: #f2f8fb;
   padding: 0.7rem;
   display: grid;
   gap: 0.7rem;
@@ -371,7 +439,7 @@ button.danger {
 }
 
 .start-pm {
-  border: 1px dashed #c7d9df;
+  border: 1px dashed #b4c9d4;
   border-radius: 10px;
   background: #ffffff;
   padding: 0.55rem;
@@ -399,7 +467,7 @@ button.danger {
 }
 
 .conversation-item {
-  border: 1px solid #d6e2e6;
+  border: 1px solid #c9d9e1;
   border-radius: 10px;
   background: #ffffff;
   padding: 0.5rem;
@@ -409,12 +477,12 @@ button.danger {
 }
 
 .conversation-item:hover {
-  border-color: #9ec2cb;
+  border-color: #6da0b3;
 }
 
 .conversation-item.active {
-  border-color: #69a9a0;
-  background: #eef9f6;
+  border-color: #1c8c77;
+  background: #eaf8f4;
 }
 
 .conversation-top {
@@ -427,7 +495,7 @@ button.danger {
 .conversation-name {
   font-weight: 700;
   font-size: 0.9rem;
-  color: #173245;
+  color: #123146;
 }
 
 .conversation-time {
@@ -436,7 +504,7 @@ button.danger {
 }
 
 .conversation-preview {
-  color: #445d68;
+  color: #2f4b59;
   font-size: 0.81rem;
   white-space: nowrap;
   overflow: hidden;
@@ -444,11 +512,11 @@ button.danger {
 }
 
 .conversation-item.active .conversation-name {
-  color: #0d6153;
+  color: #0b604f;
 }
 
 .conversation-item.active .conversation-preview {
-  color: #2a5f58;
+  color: #215149;
 }
 
 .message-room {
@@ -462,7 +530,7 @@ button.danger {
 
 .room-head {
   padding: 0.8rem;
-  border-bottom: 1px solid #dde8ea;
+  border-bottom: 1px solid #d1e0e6;
   display: flex;
   align-items: flex-start;
   justify-content: space-between;
@@ -490,16 +558,16 @@ button.danger {
 }
 
 .chat-bubble {
-  border: 1px solid #d7e3e7;
+  border: 1px solid #cadbe2;
   border-radius: 12px;
   padding: 0.5rem 0.6rem;
   max-width: 76%;
-  background: #f8fcfd;
+  background: #f6fbfd;
 }
 
 .chat-row.mine .chat-bubble {
-  background: #ecf9f5;
-  border-color: #9dcfc3;
+  background: #eaf8f3;
+  border-color: #72bda9;
 }
 
 .bubble-meta {
@@ -513,11 +581,11 @@ button.danger {
 .bubble-author {
   font-size: 0.78rem;
   font-weight: 700;
-  color: #173848;
+  color: #102e43;
 }
 
 .chat-row.mine .bubble-author {
-  color: #0f5f4d;
+  color: #0a5a4a;
 }
 
 .bubble-time {
@@ -537,7 +605,7 @@ button.danger {
 }
 
 .chat-compose {
-  border-top: 1px solid #dde8ea;
+  border-top: 1px solid #d1e0e6;
   padding: 0.75rem;
   display: flex;
   gap: 0.55rem;
@@ -563,7 +631,7 @@ table {
 
 th,
 td {
-  border: 1px solid #e0e8ea;
+  border: 1px solid #d2e0e6;
   padding: 0.24rem;
   text-align: center;
 }
@@ -575,10 +643,10 @@ td {
 }
 
 .error {
-  border: 1px solid #f0c4b8;
+  border: 1px solid #ebbcaf;
   border-radius: 9px;
-  background: #fff2ed;
-  color: #8a2f1d;
+  background: #fff3ef;
+  color: #7e2b1b;
   padding: 0.55rem;
   margin-bottom: 0.8rem;
 }
@@ -610,6 +678,12 @@ td {
   .container {
     width: calc(100% - 0.8rem);
     margin: 0.6rem auto 1.2rem;
+  }
+
+  body.signed-out .container {
+    width: calc(100% - 1.1rem);
+    margin: 0 auto;
+    padding: 0.8rem 0;
   }
 
   .inline-form {

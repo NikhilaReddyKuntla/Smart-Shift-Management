@@ -170,6 +170,14 @@ function stopMessagePolling() {
   messagePollTimer = null;
 }
 
+function setAuthLayout(isAuthenticated) {
+  document.body.classList.toggle("signed-in", isAuthenticated);
+  document.body.classList.toggle("signed-out", !isAuthenticated);
+  setVisible(el.heroBanner, !isAuthenticated);
+  setVisible(el.loginPanel, !isAuthenticated);
+  setVisible(el.appPanel, isAuthenticated);
+}
+
 async function api(path, options = {}) {
   const headers = {
     ...(options.headers || {}),
@@ -807,9 +815,7 @@ async function login(email, password) {
   state.groupMessagesCache = [];
   state.dmMessagesCache = [];
   state.shiftThreadCache = {};
-  el.heroBanner.classList.add("hidden");
-  el.loginPanel.classList.add("hidden");
-  el.appPanel.classList.remove("hidden");
+  setAuthLayout(true);
 
   await refreshDashboard();
   startMessagePolling();
@@ -826,24 +832,23 @@ function logout() {
   state.shiftThreadCache = {};
   state.activeConversation = { channelType: "group", peerId: null, threadId: null };
   el.messageFeed.innerHTML = "";
-  el.appPanel.classList.add("hidden");
-  el.heroBanner.classList.remove("hidden");
-  el.loginPanel.classList.remove("hidden");
+  setAuthLayout(false);
 }
 
 async function bootstrap() {
+  setAuthLayout(Boolean(state.token));
   try {
     const data = await api("/api/users", { headers: {}, body: undefined });
     state.users = data.users;
 
     if (state.token) {
-      el.heroBanner.classList.add("hidden");
-      el.loginPanel.classList.add("hidden");
-      el.appPanel.classList.remove("hidden");
       await refreshDashboard();
       startMessagePolling();
     }
   } catch (error) {
+    stopMessagePolling();
+    setAuthToken("");
+    setAuthLayout(false);
     showError(error.message);
   }
 }

@@ -39,7 +39,6 @@ const el = {
   heroBanner: document.getElementById("heroBanner"),
   loginPanel: document.getElementById("loginPanel"),
   appPanel: document.getElementById("appPanel"),
-  userCards: document.getElementById("userCards"),
   manualLoginForm: document.getElementById("manualLoginForm"),
   emailInput: document.getElementById("emailInput"),
   passwordInput: document.getElementById("passwordInput"),
@@ -247,22 +246,6 @@ function setActiveSection(sectionId) {
   el.sectionSubtitle.textContent = current?.subtitle || "";
 }
 
-function renderUserCards() {
-  el.userCards.innerHTML = state.users
-    .map(
-      (user) => `
-      <div class="user-card">
-        <div class="item-title">${user.name}</div>
-        <div class="item-meta">${user.role} · ${user.email}</div>
-        <div class="item-actions">
-          <button type="button" data-fill-email="${user.email}">Use ${user.email}</button>
-        </div>
-      </div>
-    `,
-    )
-    .join("");
-}
-
 function renderManagerMetrics(metrics) {
   const items = [
     ["Open Shifts", metrics.openShiftCount],
@@ -294,6 +277,11 @@ function renderList(container, items, renderer, emptyLabel) {
 
 function getShiftById(shiftId) {
   return state.shifts.find((shift) => shift.id === shiftId);
+}
+
+function getUserName(userId) {
+  const user = state.users.find((entry) => entry.id === userId);
+  return user ? user.name : userId || "Unknown";
 }
 
 function renderManagerView() {
@@ -331,11 +319,18 @@ function renderManagerView() {
     dashboard.pendingSwapRequests,
     (request) => {
       const shift = getShiftById(request.shiftId);
+      const requesterName = getUserName(request.requesterId);
+      const candidateName = getUserName(request.candidateId);
+      const shiftLabel = shift ? `${shift.roleNeeded} · ${shift.location}` : request.shiftId;
+      const shiftTime = shift ? `${prettyDate(shift.startAt)} - ${prettyDate(shift.endAt)}` : "Shift details unavailable";
       return `
         <div class="list-item">
-          <div class="item-title">Shift ${request.shiftId}</div>
-          <div class="item-meta">Requester: ${request.requesterId} · Candidate: ${request.candidateId}</div>
-          <div class="item-meta">${shift ? `${prettyDate(shift.startAt)} at ${shift.location}` : ""}</div>
+          <div class="item-title">${shiftLabel}</div>
+          <div class="item-meta">Requested by: ${requesterName}</div>
+          <div class="item-meta">Requested swap with: ${candidateName}</div>
+          <div class="item-meta">Current assignment: ${getUserName(shift?.assignedUserId || request.requesterId)}</div>
+          <div class="item-meta">Shift time: ${shiftTime}</div>
+          <div class="item-meta">Requested on: ${prettyDate(request.createdAt)}</div>
           <div class="item-actions">
             <button data-swap-decision="approve" data-request-id="${request.id}">Approve</button>
             <button class="danger" data-swap-decision="reject" data-request-id="${request.id}">Reject</button>
@@ -351,11 +346,16 @@ function renderManagerView() {
     dashboard.pendingDropRequests,
     (request) => {
       const shift = getShiftById(request.shiftId);
+      const requesterName = getUserName(request.requesterId);
+      const shiftLabel = shift ? `${shift.roleNeeded} · ${shift.location}` : request.shiftId;
+      const shiftTime = shift ? `${prettyDate(shift.startAt)} - ${prettyDate(shift.endAt)}` : "Shift details unavailable";
       return `
         <div class="list-item">
-          <div class="item-title">Shift ${request.shiftId}</div>
-          <div class="item-meta">Requester: ${request.requesterId}</div>
-          <div class="item-meta">${shift ? `${prettyDate(shift.startAt)} at ${shift.location}` : ""}</div>
+          <div class="item-title">${shiftLabel}</div>
+          <div class="item-meta">Requested by: ${requesterName}</div>
+          <div class="item-meta">Current assignment: ${getUserName(shift?.assignedUserId || request.requesterId)}</div>
+          <div class="item-meta">Shift time: ${shiftTime}</div>
+          <div class="item-meta">Requested on: ${prettyDate(request.createdAt)}</div>
           <div class="item-actions">
             <button data-drop-decision="approve" data-request-id="${request.id}">Approve</button>
             <button class="danger" data-drop-decision="reject" data-request-id="${request.id}">Reject</button>
@@ -835,7 +835,6 @@ async function bootstrap() {
   try {
     const data = await api("/api/users", { headers: {}, body: undefined });
     state.users = data.users;
-    renderUserCards();
 
     if (state.token) {
       el.heroBanner.classList.add("hidden");
@@ -853,13 +852,6 @@ el.navMenu.addEventListener("click", (event) => {
   const btn = event.target.closest("button[data-section]");
   if (!btn) return;
   setActiveSection(btn.dataset.section);
-});
-
-el.userCards.addEventListener("click", (event) => {
-  const btn = event.target.closest("button[data-fill-email]");
-  if (!btn) return;
-  el.emailInput.value = btn.dataset.fillEmail;
-  el.passwordInput.focus();
 });
 
 el.manualLoginForm.addEventListener("submit", async (event) => {

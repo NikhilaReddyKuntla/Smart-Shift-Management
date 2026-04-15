@@ -438,13 +438,17 @@ button.danger {
   margin-bottom: 0.12rem;
 }
 
-.start-pm {
-  border: 1px dashed #b4c9d4;
+.conversation-search {
+  border: 1px solid #c7d8e0;
   border-radius: 10px;
   background: #ffffff;
-  padding: 0.55rem;
-  display: grid;
-  gap: 0.5rem;
+  padding: 0.45rem;
+}
+
+.conversation-search input {
+  width: 100%;
+  border-radius: 8px;
+  padding: 0.5rem 0.58rem;
 }
 
 .conversation-group {

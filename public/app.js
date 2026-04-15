@@ -15,6 +15,7 @@
   groupMessagesCache: [],
   dmMessagesCache: [],
   shiftThreadCache: {},
+  messageSearchQuery: "",
 };
 
 const navConfigByRole = {
@@ -77,8 +78,7 @@ const el = {
   availabilityGrid: document.getElementById("availabilityGrid"),
   saveAvailabilityBtn: document.getElementById("saveAvailabilityBtn"),
   availabilityResult: document.getElementById("availabilityResult"),
-  pmUserSelect: document.getElementById("pmUserSelect"),
-  startPmBtn: document.getElementById("startPmBtn"),
+  messageSearchInput: document.getElementById("messageSearchInput"),
   channelList: document.getElementById("channelList"),
   dmList: document.getElementById("dmList"),
   shiftThreadList: document.getElementById("shiftThreadList"),
@@ -97,7 +97,6 @@ const halfHourSlots = Array.from({ length: 48 }, (_, idx) => {
   const mm = idx % 2 === 0 ? "00" : "30";
   return `${hh}:${mm}`;
 });
-const LOCAL_GROUP_MESSAGES_KEY = "bu_shift_group_messages_v1";
 const MESSAGE_POLL_MS = 8000;
 let messagePollTimer = null;
 
@@ -124,21 +123,6 @@ function prettyDate(isoString) {
     hour: "numeric",
     minute: "2-digit",
   });
-}
-
-function getLocalGroupMessages() {
-  try {
-    const raw = localStorage.getItem(LOCAL_GROUP_MESSAGES_KEY);
-    if (!raw) return [];
-    const parsed = JSON.parse(raw);
-    return Array.isArray(parsed) ? parsed : [];
-  } catch (_error) {
-    return [];
-  }
-}
-
-function setLocalGroupMessages(messages) {
-  localStorage.setItem(LOCAL_GROUP_MESSAGES_KEY, JSON.stringify(messages.slice(0, 500)));
 }
 
 function mergeMessages(primary, secondary) {
@@ -572,9 +556,7 @@ function shortTime(isoString) {
 
 async function fetchGroupMessages() {
   const data = await api("/api/messages?channelType=group");
-  const merged = mergeMessages(data.messages || [], getLocalGroupMessages());
-  state.groupMessagesCache = merged;
-  setLocalGroupMessages(merged);
+  state.groupMessagesCache = data.messages || [];
 }
 
 async function fetchDmMessages() {
@@ -644,25 +626,30 @@ function renderConversationItems(container, items, emptyLabel) {
     .join("");
 }
 
+function filterConversationItems(items) {
+  const query = state.messageSearchQuery.trim().toLowerCase();
+  if (!query) return items;
+  return items.filter((item) => `${item.name} ${item.preview}`.toLowerCase().includes(query));
+}
+
 function renderConversationLists() {
   const dmLatest = buildDmLatestMap();
   const groupLatest = state.groupMessagesCache[0] || null;
+  const query = state.messageSearchQuery.trim();
 
-  renderConversationItems(
-    el.channelList,
-    [
-      {
-        channelType: "group",
-        peerId: null,
-        threadId: null,
-        name: "Department Group",
-        preview: groupLatest ? `${getUserByIdLocal(groupLatest.senderId)?.name || "Unknown"}: ${groupLatest.body}` : "No messages yet",
-        time: groupLatest ? shortTime(groupLatest.sentAt) : "",
-        active: sameConversation(state.activeConversation, { channelType: "group", peerId: null, threadId: null }),
-      },
-    ],
-    "No channels yet.",
-  );
+  const channelItems = [
+    {
+      channelType: "group",
+      peerId: null,
+      threadId: null,
+      name: "Department Group",
+      preview: groupLatest ? `${getUserByIdLocal(groupLatest.senderId)?.name || "Unknown"}: ${groupLatest.body}` : "No messages yet",
+      time: groupLatest ? shortTime(groupLatest.sentAt) : "",
+      active: sameConversation(state.activeConversation, { channelType: "group", peerId: null, threadId: null }),
+    },
+  ];
+
+  renderConversationItems(el.channelList, filterConversationItems(channelItems), query ? "No channel matches your search." : "No channels yet.");
 
   const dmItems = getAllowedDmPeers()
     .map((peer) => {
@@ -683,7 +670,7 @@ function renderConversationLists() {
       return a.name.localeCompare(b.name);
     });
 
-  renderConversationItems(el.dmList, dmItems, "No direct message peers available.");
+  renderConversationItems(el.dmList, filterConversationItems(dmItems), query ? "No contact matches your search." : "No direct message peers available.");
 
   const shiftItems = getShiftThreadCandidates().map((shift) => {
     const latest = (state.shiftThreadCache[shift.id] || [])[0] || null;
@@ -698,9 +685,7 @@ function renderConversationLists() {
     };
   });
 
-  renderConversationItems(el.shiftThreadList, shiftItems, "No shift threads yet.");
-
-  el.pmUserSelect.innerHTML = getAllowedDmPeers().map((peer) => `<option value="${peer.id}">${peer.name} (${peer.role})</option>`).join("");
+  renderConversationItems(el.shiftThreadList, filterConversationItems(shiftItems), query ? "No shift thread matches your search." : "No shift threads yet.");
 }
 
 function getActiveConversationMessages() {
@@ -1084,16 +1069,9 @@ el.shiftThreadList.addEventListener("click", async (event) => {
   }
 });
 
-el.startPmBtn.addEventListener("click", async () => {
-  try {
-    const peerId = el.pmUserSelect.value;
-    if (!peerId) {
-      throw new Error("Pick a user first to start PM.");
-    }
-    await openConversation({ channelType: "dm", peerId, threadId: null });
-  } catch (error) {
-    showError(error.message);
-  }
+el.messageSearchInput.addEventListener("input", () => {
+  state.messageSearchQuery = el.messageSearchInput.value || "";
+  renderConversationLists();
 });
 
 el.refreshMessagesBtn.addEventListener("click", async () => {
@@ -1131,7 +1109,6 @@ el.messageForm.addEventListener("submit", async (event) => {
 
     if (state.activeConversation.channelType === "group" && result.message) {
       state.groupMessagesCache = mergeMessages([result.message], state.groupMessagesCache);
-      setLocalGroupMessages(mergeMessages([result.message], getLocalGroupMessages()));
     }
 
     if (state.activeConversation.channelType === "dm" && result.message) {

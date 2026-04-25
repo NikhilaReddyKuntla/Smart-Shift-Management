@@ -117,6 +117,7 @@ const halfHourSlots = Array.from({ length: 48 }, (_, idx) => {
 });
 const MESSAGE_POLL_MS = 8000;
 let messagePollTimer = null;
+let availabilityResultTimer = null;
 
 function setVisible(element, visible) {
   element.classList.toggle("hidden", !visible);
@@ -130,6 +131,21 @@ function showError(message) {
   }
   el.errorBox.textContent = message;
   el.errorBox.classList.remove("hidden");
+}
+
+function showAvailabilityResult(message, autoHideMs = 0) {
+  if (availabilityResultTimer) {
+    clearTimeout(availabilityResultTimer);
+    availabilityResultTimer = null;
+  }
+
+  el.availabilityResult.textContent = message || "";
+  if (!message || autoHideMs <= 0) return;
+
+  availabilityResultTimer = setTimeout(() => {
+    el.availabilityResult.textContent = "";
+    availabilityResultTimer = null;
+  }, autoHideMs);
 }
 
 function prettyDate(isoString) {
@@ -1284,7 +1300,7 @@ el.saveAvailabilityBtn.addEventListener("click", async () => {
     endAvailabilityPaint();
     renderAvailabilityEditor();
 
-    el.availabilityResult.textContent = "Schedule saved.";
+    showAvailabilityResult("Schedule saved.", 3500);
     if (state.user?.role === "student") {
       const dashboard = await api("/api/dashboard/student");
       state.dashboard = dashboard;

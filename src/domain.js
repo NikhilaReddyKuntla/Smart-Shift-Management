@@ -60,6 +60,9 @@ function assertEnum(value, allowed, label) {
 }
 
 function parseTimeToMinutes(hhmm) {
+  if (hhmm === "24:00") {
+    return 24 * 60;
+  }
   const match = /^([01]\d|2[0-3]):([0-5]\d)$/.exec(hhmm);
   if (!match) {
     throw new AppError(400, "Invalid time format, expected HH:MM", "INVALID_TIME", { hhmm });

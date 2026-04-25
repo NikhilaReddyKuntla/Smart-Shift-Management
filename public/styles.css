@@ -663,68 +663,36 @@ button.danger {
 }
 
 .availability-editor {
-  display: grid;
-  gap: 0.65rem;
   margin: 0.58rem 0;
+  user-select: none;
 }
 
-.availability-day-card {
-  border: 1px solid #cddce4;
-  border-radius: 10px;
-  background: #ffffff;
-  padding: 0.55rem;
+.availability-grid {
+  table-layout: fixed;
+  min-width: 620px;
 }
 
-.availability-day-head {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 0.5rem;
-  margin-bottom: 0.45rem;
+.availability-grid th,
+.availability-grid td {
+  min-width: 72px;
 }
 
-.availability-day-head h4 {
-  margin: 0;
-}
-
-.availability-day-body {
-  display: grid;
-  gap: 0.45rem;
-}
-
-.availability-block {
-  border: 1px solid #d6e2e8;
-  border-radius: 9px;
+.availability-grid td:first-child,
+.availability-grid th:first-child {
+  position: sticky;
+  left: 0;
+  z-index: 1;
   background: #f8fcfe;
-  padding: 0.45rem;
-  display: grid;
-  gap: 0.32rem;
 }
 
-.availability-block-head {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 0.4rem;
-  font-weight: 700;
-  font-size: 0.84rem;
+.availability-cell {
+  cursor: crosshair;
+  background: #ffffff;
+  transition: background 0.08s ease;
 }
 
-.availability-slider-row {
-  display: grid;
-  grid-template-columns: 1fr auto;
-  align-items: center;
-  gap: 0.42rem;
-}
-
-.availability-slider-row label {
-  font-size: 0.8rem;
-}
-
-.availability-slider-row input[type="range"] {
-  width: 100%;
-  padding: 0;
-  border: none;
+.availability-cell.busy {
+  background: #d8f3eb;
 }
 
 table {

@@ -1,7 +1,7 @@
 {
   "name": "final-project",
   "version": "1.0.0",
-  "description": "BU Student Shift Manager MVP",
+  "description": "BU Student Shift Manager",
   "main": "src/server.js",
   "scripts": {
     "test": "node tests/domain.test.js",

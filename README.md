@@ -1,8 +1,8 @@
-# BU Student Shift Management MVP
+# BU Student Shift Management
 
-A Vercel-ready web MVP for Boston University student employee shift operations.
+A Vercel-ready web app for Boston University student employee shift operations.
 
-## Included MVP capabilities
+## Included capabilities
 
 - Role-based access: manager + student
 - Shift release and claim with eligibility rules
@@ -17,7 +17,7 @@ A Vercel-ready web MVP for Boston University student employee shift operations.
 
 - Backend: Node.js + Express (serverless-compatible entry at `api/index.js`)
 - Frontend: static HTML/CSS/JS in `public/`
-- Data: in-memory seeded store (for MVP/demo)
+- Data: in-memory seeded store (for demo)
 - Tests: Node built-in test runner (`node --test`)
 
 ## Run locally
@@ -54,7 +54,7 @@ npm test
 
 The API is routed through `/api/index.js` and static UI is served from `public/`.
 
-## Notes for this MVP
+## Notes
 
 - Authentication is demo-level (seeded credentials, header token in browser local storage).
 - Data resets when the process restarts (no persistent database yet).

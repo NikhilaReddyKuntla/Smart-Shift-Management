@@ -106,7 +106,7 @@ function getShiftUtcDayAndMinutes(shift) {
   const start = toDate(shift.startAt);
   const end = toDate(shift.endAt);
   if (start.getUTCDate() !== end.getUTCDate() || start.getUTCMonth() !== end.getUTCMonth() || start.getUTCFullYear() !== end.getUTCFullYear()) {
-    throw new AppError(400, "Shifts spanning midnight are not supported in MVP", "SHIFT_CROSS_DAY");
+    throw new AppError(400, "Shifts spanning midnight are not supported.", "SHIFT_CROSS_DAY");
   }
   const dayOfWeek = start.getUTCDay();
   const startMinutes = start.getUTCHours() * 60 + start.getUTCMinutes();

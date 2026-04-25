@@ -1177,11 +1177,35 @@ function createSeedState(nowValue = new Date()) {
   const now = toDate(nowValue);
   const plusHours = (hours) => new Date(now.getTime() + hours * 60 * 60 * 1000).toISOString();
   const minusHours = (hours) => new Date(now.getTime() - hours * 60 * 60 * 1000).toISOString();
+  const getSameUtcDayWindow = (startOffsetHours, durationHours, fallbackHour) => {
+    const start = new Date(now.getTime() + startOffsetHours * 60 * 60 * 1000);
+    const end = new Date(start.getTime() + durationHours * 60 * 60 * 1000);
+    const isSameUtcDay =
+      start.getUTCDate() === end.getUTCDate() &&
+      start.getUTCMonth() === end.getUTCMonth() &&
+      start.getUTCFullYear() === end.getUTCFullYear();
+
+    if (isSameUtcDay) {
+      return {
+        startAt: start.toISOString(),
+        endAt: end.toISOString(),
+      };
+    }
+
+    const fallbackStart = new Date(now.getTime() + 24 * 60 * 60 * 1000);
+    fallbackStart.setUTCHours(fallbackHour, 0, 0, 0);
+    const fallbackEnd = new Date(fallbackStart.getTime() + durationHours * 60 * 60 * 1000);
+    return {
+      startAt: fallbackStart.toISOString(),
+      endAt: fallbackEnd.toISOString(),
+    };
+  };
   const plusDays = (days, hour, minute) => {
     const target = new Date(now.getTime() + days * 24 * 60 * 60 * 1000);
     target.setUTCHours(hour, minute, 0, 0);
     return target.toISOString();
   };
+  const urgentAssignedWindow = getSameUtcDayWindow(3, 2, 10);
 
   const manager = {
     id: "u_manager_1",
@@ -1287,14 +1311,14 @@ function createSeedState(nowValue = new Date()) {
     },
     {
       id: "shift_assigned_pending",
-      startAt: plusHours(3),
-      endAt: plusHours(5),
+      startAt: urgentAssignedWindow.startAt,
+      endAt: urgentAssignedWindow.endAt,
       roleNeeded: "library",
       location: "Mugar Memorial Library",
       status: "assigned",
       assignedUserId: studentA.id,
       claimedAt: now.toISOString(),
-      confirmationDueAt: computeConfirmationDueAt(plusHours(3), now),
+      confirmationDueAt: computeConfirmationDueAt(urgentAssignedWindow.startAt, now),
       confirmedAt: null,
       reminderSentAt: null,
       createdBy: manager.id,

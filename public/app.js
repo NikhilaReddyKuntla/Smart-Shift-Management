@@ -1284,7 +1284,7 @@ el.saveAvailabilityBtn.addEventListener("click", async () => {
     endAvailabilityPaint();
     renderAvailabilityEditor();
 
-    el.availabilityResult.textContent = `Saved ${selectedSlots.length} busy slots.`;
+    el.availabilityResult.textContent = "Schedule saved.";
     if (state.user?.role === "student") {
       const dashboard = await api("/api/dashboard/student");
       state.dashboard = dashboard;

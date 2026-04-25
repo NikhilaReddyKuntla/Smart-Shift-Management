@@ -26,7 +26,7 @@ const {
   runStaffingNudgeAssigned,
   runStaffingNudgeCandidates,
   sendMessage,
-  setSmsOptIn,
+  updateNotificationPrefs,
   upsertAttendance,
   confirmShift,
 } = require("./domain");
@@ -114,6 +114,28 @@ function createApp(store = defaultStore) {
     };
   }
 
+  function enrichSwapRequest(state, request) {
+    const requester = state.users.find((user) => user.id === request.requesterId);
+    const candidate = state.users.find((user) => user.id === request.candidateId);
+    const shift = state.shifts.find((entry) => entry.id === request.shiftId);
+    return {
+      ...request,
+      requesterName: requester ? requester.name : request.requesterId,
+      candidateName: candidate ? candidate.name : request.candidateId,
+      shift: shift ? enrichShift(state, shift) : null,
+    };
+  }
+
+  function enrichDropRequest(state, request) {
+    const requester = state.users.find((user) => user.id === request.requesterId);
+    const shift = state.shifts.find((entry) => entry.id === request.shiftId);
+    return {
+      ...request,
+      requesterName: requester ? requester.name : request.requesterId,
+      shift: shift ? enrichShift(state, shift) : null,
+    };
+  }
+
   app.get("/api/health", (_req, res) => {
     res.json({ ok: true, service: "bu-shift-manager" });
   });
@@ -146,8 +168,8 @@ function createApp(store = defaultStore) {
 
   app.patch("/api/me/notification-prefs", requireUser, (req, res, next) => {
     try {
-      const { smsOptIn } = req.body || {};
-      const prefs = setSmsOptIn(getState(), { userId: req.user.id, smsOptIn });
+      const { smsOptIn, slackOptIn } = req.body || {};
+      const prefs = updateNotificationPrefs(getState(), { userId: req.user.id, smsOptIn, slackOptIn });
       res.json({ notificationPrefs: prefs });
     } catch (error) {
       next(error);
@@ -300,7 +322,15 @@ function createApp(store = defaultStore) {
     try {
       const state = getState();
       const dashboard = getManagerDashboard(state, req.user.id, new Date());
-      res.json(dashboard);
+      res.json({
+        ...dashboard,
+        openShifts: dashboard.openShifts.map((shift) => enrichShift(state, shift)),
+        confirmationsPending: dashboard.confirmationsPending.map((shift) => enrichShift(state, shift)),
+        noShowRisk: dashboard.noShowRisk.map((shift) => enrichShift(state, shift)),
+        pendingSwapRequests: dashboard.pendingSwapRequests.map((request) => enrichSwapRequest(state, request)),
+        pendingDropRequests: dashboard.pendingDropRequests.map((request) => enrichDropRequest(state, request)),
+        upcomingShifts: dashboard.upcomingShifts.map((shift) => enrichShift(state, shift)),
+      });
     } catch (error) {
       next(error);
     }
@@ -308,8 +338,18 @@ function createApp(store = defaultStore) {
 
   app.get("/api/dashboard/student", requireUser, requireRole(ROLE.STUDENT), (req, res, next) => {
     try {
-      const dashboard = getStudentDashboard(getState(), req.user.id, new Date());
-      res.json(dashboard);
+      const state = getState();
+      const dashboard = getStudentDashboard(state, req.user.id, new Date());
+      res.json({
+        ...dashboard,
+        confirmationTasks: dashboard.confirmationTasks.map((shift) => enrichShift(state, shift)),
+        claimableShifts: dashboard.claimableShifts.map((shift) => enrichShift(state, shift)),
+        upcomingShifts: dashboard.upcomingShifts.map((shift) => enrichShift(state, shift)),
+        requestHistory: {
+          swapRequests: dashboard.requestHistory.swapRequests.map((request) => enrichSwapRequest(state, request)),
+          dropRequests: dashboard.requestHistory.dropRequests.map((request) => enrichDropRequest(state, request)),
+        },
+      });
     } catch (error) {
       next(error);
     }
@@ -341,14 +381,20 @@ function createApp(store = defaultStore) {
     const state = getState();
     const swapRequests = state.swapRequests.filter((request) => request.requesterId === req.user.id || request.candidateId === req.user.id);
     const dropRequests = state.dropRequests.filter((request) => request.requesterId === req.user.id);
-    res.json({ swapRequests, dropRequests });
+    res.json({
+      swapRequests: swapRequests.map((request) => enrichSwapRequest(state, request)),
+      dropRequests: dropRequests.map((request) => enrichDropRequest(state, request)),
+    });
   });
 
   app.get("/api/requests/pending", requireUser, requireRole(ROLE.MANAGER), (req, res) => {
     const state = getState();
     const pendingSwapRequests = state.swapRequests.filter((request) => request.status === "pending");
     const pendingDropRequests = state.dropRequests.filter((request) => request.status === "pending");
-    res.json({ pendingSwapRequests, pendingDropRequests });
+    res.json({
+      pendingSwapRequests: pendingSwapRequests.map((request) => enrichSwapRequest(state, request)),
+      pendingDropRequests: pendingDropRequests.map((request) => enrichDropRequest(state, request)),
+    });
   });
 
   app.get("/api/messages", requireUser, (req, res, next) => {
@@ -444,6 +490,7 @@ function createApp(store = defaultStore) {
       notifications: state.notifications,
       emailLog: state.emailLog,
       smsLog: state.smsLog,
+      slackLog: state.slackLog,
     });
   });
 

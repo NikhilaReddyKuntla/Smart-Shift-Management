@@ -35,7 +35,7 @@ const navConfigByRole = {
     { id: "shifts", label: "Shifts", subtitle: "Publish upcoming shifts and record attendance outcomes." },
     { id: "requests", label: "Requests", subtitle: "Approve or reject student swap and drop requests." },
     { id: "messages", label: "Messages", subtitle: "Coordinate staffing updates through group, DM, and shift threads." },
-    { id: "settings", label: "Settings", subtitle: "Run reminder jobs and manage operations controls." },
+    { id: "settings", label: "Settings", subtitle: "Manage manager notification preferences." },
   ],
   student: [
     { id: "overview", label: "Overview", subtitle: "Track confirmations and key shift notifications." },
@@ -85,8 +85,8 @@ const el = {
   pendingDrops: document.getElementById("pendingDrops"),
   noShowRisk: document.getElementById("noShowRisk"),
   attendanceList: document.getElementById("attendanceList"),
-  runReminderBtn: document.getElementById("runReminderBtn"),
-  reminderResult: document.getElementById("reminderResult"),
+  managerSmsToggle: document.getElementById("managerSmsToggle"),
+  managerSlackToggle: document.getElementById("managerSlackToggle"),
   confirmationTasks: document.getElementById("confirmationTasks"),
   claimableShifts: document.getElementById("claimableShifts"),
   upcomingShifts: document.getElementById("upcomingShifts"),
@@ -400,6 +400,8 @@ function renderManagerView() {
   renderManagerMetrics(dashboard.metrics);
   renderStaffingCopilot(dashboard);
   renderManagerUpcomingShifts(dashboard);
+  el.managerSmsToggle.checked = Boolean(state.user.notificationPrefs?.smsOptIn);
+  el.managerSlackToggle.checked = Boolean(state.user.notificationPrefs?.slackOptIn);
 
   renderList(
     el.noShowRisk,
@@ -407,7 +409,7 @@ function renderManagerView() {
     (shift) => `
       <div class="list-item">
         <div class="item-title">${shift.roleNeeded} · ${shift.location}</div>
-        <div class="item-meta">${prettyDate(shift.startAt)} · Assigned: ${shift.assignedUserName || shift.assignedUserId || "Unknown"}</div>
+        <div class="item-meta">${prettyDate(shift.startAt)} · Assigned: ${getUserName(shift.assignedUserId)}</div>
         <div class="item-meta">Confirmation due: ${prettyDate(shift.confirmationDueAt)}</div>
       </div>
     `,
@@ -420,7 +422,7 @@ function renderManagerView() {
     (shift) => `
       <div class="list-item">
         <div class="item-title">${shift.roleNeeded} · ${shift.location}</div>
-        <div class="item-meta">${prettyDate(shift.startAt)} · Student: ${shift.assignedUserName || shift.assignedUserId}</div>
+        <div class="item-meta">${prettyDate(shift.startAt)} · Student: ${getUserName(shift.assignedUserId)}</div>
         <div class="item-meta">Due: ${prettyDate(shift.confirmationDueAt)}</div>
       </div>
     `,
@@ -432,8 +434,8 @@ function renderManagerView() {
     dashboard.pendingSwapRequests,
     (request) => {
       const shift = getShiftById(request.shiftId);
-      const requesterName = getUserName(request.requesterId);
-      const candidateName = getUserName(request.candidateId);
+      const requesterName = request.requesterName || getUserName(request.requesterId);
+      const candidateName = request.candidateName || getUserName(request.candidateId);
       const shiftLabel = shift ? `${shift.roleNeeded} · ${shift.location}` : request.shiftId;
       const shiftTime = shift ? `${prettyDate(shift.startAt)} - ${prettyDate(shift.endAt)}` : "Shift details unavailable";
       return `
@@ -459,7 +461,7 @@ function renderManagerView() {
     dashboard.pendingDropRequests,
     (request) => {
       const shift = getShiftById(request.shiftId);
-      const requesterName = getUserName(request.requesterId);
+      const requesterName = request.requesterName || getUserName(request.requesterId);
       const shiftLabel = shift ? `${shift.roleNeeded} · ${shift.location}` : request.shiftId;
       const shiftTime = shift ? `${prettyDate(shift.startAt)} - ${prettyDate(shift.endAt)}` : "Shift details unavailable";
       return `
@@ -486,7 +488,7 @@ function renderManagerView() {
     (shift) => `
       <div class="list-item">
         <div class="item-title">${shift.roleNeeded} · ${shift.location}</div>
-        <div class="item-meta">${prettyDate(shift.startAt)} · Student: ${shift.assignedUserName || shift.assignedUserId}</div>
+        <div class="item-meta">${prettyDate(shift.startAt)} · Student: ${getUserName(shift.assignedUserId)}</div>
         <div class="item-actions">
           <button data-attendance-mark="present" data-shift-id="${shift.id}">Present</button>
           <button class="danger" data-attendance-mark="no_show" data-shift-id="${shift.id}">No-show</button>
@@ -565,12 +567,28 @@ function renderStudentView() {
     "No upcoming shifts assigned.",
   );
 
-  const swapItems = dashboard.requestHistory.swapRequests.map(
-    (request) => `<div class="list-item"><div class="item-title">Swap ${request.shiftId}</div><div class="item-meta">Status: ${request.status}</div></div>`,
-  );
-  const dropItems = dashboard.requestHistory.dropRequests.map(
-    (request) => `<div class="list-item"><div class="item-title">Drop ${request.shiftId}</div><div class="item-meta">Status: ${request.status}</div></div>`,
-  );
+  const swapItems = dashboard.requestHistory.swapRequests.map((request) => {
+    const shift = getShiftById(request.shiftId);
+    const shiftTitle = shift ? `${shift.roleNeeded} · ${shift.location}` : request.shiftId;
+    const candidateName = request.candidateName || getUserName(request.candidateId);
+    return `
+      <div class="list-item">
+        <div class="item-title">Swap · ${shiftTitle}</div>
+        <div class="item-meta">Candidate: ${candidateName}</div>
+        <div class="item-meta">Status: ${request.status}</div>
+      </div>
+    `;
+  });
+  const dropItems = dashboard.requestHistory.dropRequests.map((request) => {
+    const shift = getShiftById(request.shiftId);
+    const shiftTitle = shift ? `${shift.roleNeeded} · ${shift.location}` : request.shiftId;
+    return `
+      <div class="list-item">
+        <div class="item-title">Drop · ${shiftTitle}</div>
+        <div class="item-meta">Status: ${request.status}</div>
+      </div>
+    `;
+  });
   const requestItems = [...swapItems, ...dropItems];
   el.studentRequests.innerHTML = requestItems.length > 0 ? `<div class="list">${requestItems.join("")}</div>` : `<p class="hint">No swap/drop requests yet.</p>`;
 }
@@ -620,6 +638,16 @@ function renderAvailabilityEditor() {
     })
     .join("");
   el.availabilityEditor.innerHTML = `<div class="availability-wrap"><table class="availability-grid">${head}${rows}</table></div>`;
+  const wrap = el.availabilityEditor.querySelector(".availability-wrap");
+  if (!wrap || state.availabilityBusyCells.size === 0) return;
+  const firstBusySlot = Array.from(state.availabilityBusyCells)
+    .map((key) => Number(String(key).split("|")[1]))
+    .filter((index) => Number.isInteger(index))
+    .sort((a, b) => a - b)[0];
+  if (!Number.isInteger(firstBusySlot)) return;
+  const targetRow = el.availabilityEditor.querySelector(`.availability-cell[data-slot-index="${firstBusySlot}"]`)?.closest("tr");
+  if (!targetRow) return;
+  wrap.scrollTop = Math.max(0, targetRow.offsetTop - 72);
 }
 
 function setAvailabilityCellBusy(dayIdx, slotIdx, busyValue) {
@@ -1156,19 +1184,6 @@ el.attendanceList.addEventListener("click", async (event) => {
   }
 });
 
-el.runReminderBtn.addEventListener("click", async () => {
-  try {
-    const result = await api("/api/reminders/run", {
-      method: "POST",
-      body: {},
-    });
-    el.reminderResult.textContent = `Reminders sent: ${result.remindersSent}`;
-    await refreshDashboard();
-  } catch (error) {
-    showError(error.message);
-  }
-});
-
 el.staffingCopilotList.addEventListener("click", async (event) => {
   const btn = event.target.closest("button[data-staffing-action]");
   if (!btn) return;
@@ -1270,6 +1285,30 @@ el.smsToggle.addEventListener("change", async () => {
     const result = await api("/api/me/notification-prefs", {
       method: "PATCH",
       body: { smsOptIn: el.smsToggle.checked },
+    });
+    state.user.notificationPrefs = result.notificationPrefs;
+  } catch (error) {
+    showError(error.message);
+  }
+});
+
+el.managerSmsToggle.addEventListener("change", async () => {
+  try {
+    const result = await api("/api/me/notification-prefs", {
+      method: "PATCH",
+      body: { smsOptIn: el.managerSmsToggle.checked },
+    });
+    state.user.notificationPrefs = result.notificationPrefs;
+  } catch (error) {
+    showError(error.message);
+  }
+});
+
+el.managerSlackToggle.addEventListener("change", async () => {
+  try {
+    const result = await api("/api/me/notification-prefs", {
+      method: "PATCH",
+      body: { slackOptIn: el.managerSlackToggle.checked },
     });
     state.user.notificationPrefs = result.notificationPrefs;
   } catch (error) {

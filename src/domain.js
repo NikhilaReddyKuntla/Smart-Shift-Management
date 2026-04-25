@@ -591,6 +591,17 @@ function sendNotification(state, payload) {
       sentAt: now.toISOString(),
     });
   }
+
+  if (user.notificationPrefs.slackOptIn) {
+    state.slackLog = state.slackLog || [];
+    state.slackLog.push({
+      id: id(),
+      userId: user.id,
+      channel: "#bu-shift-notifications",
+      text: `${payload.subject}: ${payload.body}`,
+      sentAt: now.toISOString(),
+    });
+  }
 }
 
 function runReminderJob(state, payload = {}) {
@@ -907,10 +918,19 @@ function getMessagesForUser(state, payload) {
   return messages.sort((a, b) => toDate(b.sentAt) - toDate(a.sentAt)).slice(0, 200);
 }
 
-function setSmsOptIn(state, payload) {
+function updateNotificationPrefs(state, payload) {
   const user = getUserById(state, payload.userId);
-  user.notificationPrefs.smsOptIn = Boolean(payload.smsOptIn);
+  if (payload.smsOptIn !== undefined) {
+    user.notificationPrefs.smsOptIn = Boolean(payload.smsOptIn);
+  }
+  if (payload.slackOptIn !== undefined) {
+    user.notificationPrefs.slackOptIn = Boolean(payload.slackOptIn);
+  }
   return user.notificationPrefs;
+}
+
+function setSmsOptIn(state, payload) {
+  return updateNotificationPrefs(state, payload);
 }
 
 function getNotificationsForUser(state, userId) {
@@ -1216,7 +1236,7 @@ function createSeedState(nowValue = new Date()) {
     phone: "+16175550001",
     qualifications: [],
     weeklyHourCap: 0,
-    notificationPrefs: { inApp: true, email: true, smsOptIn: false },
+    notificationPrefs: { inApp: true, email: true, smsOptIn: false, slackOptIn: false },
   };
   const studentA = {
     id: "u_student_1",
@@ -1227,7 +1247,7 @@ function createSeedState(nowValue = new Date()) {
     phone: "+16175550011",
     qualifications: ["front_desk", "library"],
     weeklyHourCap: 15,
-    notificationPrefs: { inApp: true, email: true, smsOptIn: false },
+    notificationPrefs: { inApp: true, email: true, smsOptIn: false, slackOptIn: false },
   };
   const studentB = {
     id: "u_student_2",
@@ -1238,7 +1258,7 @@ function createSeedState(nowValue = new Date()) {
     phone: "+16175550012",
     qualifications: ["library"],
     weeklyHourCap: 12,
-    notificationPrefs: { inApp: true, email: true, smsOptIn: true },
+    notificationPrefs: { inApp: true, email: true, smsOptIn: true, slackOptIn: false },
   };
   const studentC = {
     id: "u_student_3",
@@ -1249,7 +1269,7 @@ function createSeedState(nowValue = new Date()) {
     phone: "+16175550013",
     qualifications: ["front_desk"],
     weeklyHourCap: 10,
-    notificationPrefs: { inApp: true, email: true, smsOptIn: false },
+    notificationPrefs: { inApp: true, email: true, smsOptIn: false, slackOptIn: false },
   };
 
   const shifts = [
@@ -1437,13 +1457,40 @@ function createSeedState(nowValue = new Date()) {
     },
   ];
 
+  const swapRequests = [
+    {
+      id: "swap_seed_pending_1",
+      shiftId: "shift_assigned_pending_2",
+      requesterId: studentB.id,
+      candidateId: studentA.id,
+      status: "pending",
+      history: [{ status: "pending", at: minusHours(2) }],
+      managerDecisionAt: null,
+      decision: null,
+      createdAt: minusHours(2),
+    },
+  ];
+
+  const dropRequests = [
+    {
+      id: "drop_seed_pending_1",
+      shiftId: "shift_assigned_pending_3",
+      requesterId: studentC.id,
+      status: "pending",
+      history: [{ status: "pending", at: minusHours(1) }],
+      managerDecisionAt: null,
+      decision: null,
+      createdAt: minusHours(1),
+    },
+  ];
+
   return {
     users: [manager, studentA, studentB, studentC],
     availabilitySlots,
     shifts,
     claims: [],
-    swapRequests: [],
-    dropRequests: [],
+    swapRequests,
+    dropRequests,
     attendance,
     messages: [
       {
@@ -1459,6 +1506,7 @@ function createSeedState(nowValue = new Date()) {
     notifications: [],
     emailLog: [],
     smsLog: [],
+    slackLog: [],
     staffingActions: [],
   };
 }
@@ -1493,6 +1541,7 @@ module.exports = {
   runStaffingNudgeCandidates,
   sendMessage,
   sendNotification,
+  updateNotificationPrefs,
   setSmsOptIn,
   upsertAttendance,
   confirmShift,

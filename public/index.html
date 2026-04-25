@@ -257,10 +257,16 @@
           <section id="view-settings" class="view-section">
             <div id="managerSettings" class="role-panel hidden">
               <article class="card">
-                <h3>Operations Settings</h3>
-                <p class="hint">Send reminders to students with unconfirmed upcoming shifts.</p>
-                <button id="runReminderBtn">Run Reminder Job</button>
-                <div id="reminderResult" class="hint"></div>
+                <h3>Manager Notification Preferences</h3>
+                <label class="toggle">
+                  <input id="managerSmsToggle" type="checkbox" />
+                  SMS Opt-in
+                </label>
+                <label class="toggle">
+                  <input id="managerSlackToggle" type="checkbox" />
+                  Slack Opt-in
+                </label>
+                <p class="hint">In-app and email notifications are always enabled.</p>
               </article>
             </div>
 

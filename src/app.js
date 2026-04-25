@@ -23,6 +23,8 @@ const {
   listUsersForUi,
   replaceStudentAvailability,
   runReminderJob,
+  runStaffingNudgeAssigned,
+  runStaffingNudgeCandidates,
   sendMessage,
   setSmsOptIn,
   upsertAttendance,
@@ -401,6 +403,35 @@ function createApp(store = defaultStore) {
     }
   });
 
+  app.post("/api/staffing/actions/nudge-assigned", requireUser, requireRole(ROLE.MANAGER), (req, res, next) => {
+    try {
+      const { shiftId } = req.body || {};
+      const result = runStaffingNudgeAssigned(getState(), {
+        managerId: req.user.id,
+        shiftId,
+        now: new Date(),
+      });
+      res.json(result);
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  app.post("/api/staffing/actions/nudge-candidates", requireUser, requireRole(ROLE.MANAGER), (req, res, next) => {
+    try {
+      const { shiftId, candidateIds } = req.body || {};
+      const result = runStaffingNudgeCandidates(getState(), {
+        managerId: req.user.id,
+        shiftId,
+        candidateIds,
+        now: new Date(),
+      });
+      res.json(result);
+    } catch (error) {
+      next(error);
+    }
+  });
+
   app.get("/api/debug/state", requireUser, requireRole(ROLE.MANAGER), (_req, res) => {
     const state = getState();
     res.json({
@@ -409,6 +440,7 @@ function createApp(store = defaultStore) {
       swapRequests: state.swapRequests,
       dropRequests: state.dropRequests,
       attendance: state.attendance,
+      staffingActions: state.staffingActions,
       notifications: state.notifications,
       emailLog: state.emailLog,
       smsLog: state.smsLog,

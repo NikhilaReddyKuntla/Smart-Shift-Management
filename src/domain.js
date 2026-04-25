@@ -17,6 +17,13 @@ const ATTENDANCE_MARK = {
   EXCUSED: "excused",
 };
 
+const STAFFING_ACTION = {
+  NUDGE_ASSIGNED: "nudge_assigned",
+  NUDGE_CANDIDATES: "nudge_candidates",
+};
+
+const STAFFING_ACTION_COOLDOWN_MS = 2 * 60 * 60 * 1000;
+
 class AppError extends Error {
   constructor(status, message, code = "APP_ERROR", details = undefined) {
     super(message);
@@ -615,6 +622,121 @@ function runReminderJob(state, payload = {}) {
   return { remindersSent };
 }
 
+function getLastStaffingAction(state, shiftId, actionType) {
+  return [...(state.staffingActions || [])]
+    .filter((entry) => entry.shiftId === shiftId && entry.actionType === actionType)
+    .sort((a, b) => toDate(b.createdAt) - toDate(a.createdAt))[0];
+}
+
+function ensureStaffingActionAllowed(state, shiftId, actionType, nowValue) {
+  const now = toDate(nowValue || new Date());
+  const last = getLastStaffingAction(state, shiftId, actionType);
+  if (!last) return;
+  const elapsedMs = now.getTime() - toDate(last.createdAt).getTime();
+  if (elapsedMs < STAFFING_ACTION_COOLDOWN_MS) {
+    const minutesLeft = Math.ceil((STAFFING_ACTION_COOLDOWN_MS - elapsedMs) / (1000 * 60));
+    throw new AppError(429, `Please wait ${minutesLeft} more minute(s) before repeating this action.`, "STAFFING_ACTION_COOLDOWN");
+  }
+}
+
+function logStaffingAction(state, payload) {
+  const now = toDate(payload.now || new Date());
+  const entry = {
+    id: id(),
+    shiftId: payload.shiftId,
+    actionType: payload.actionType,
+    triggeredBy: payload.triggeredBy,
+    targetUserIds: payload.targetUserIds,
+    createdAt: now.toISOString(),
+  };
+  state.staffingActions = state.staffingActions || [];
+  state.staffingActions.push(entry);
+  return entry;
+}
+
+function runStaffingNudgeAssigned(state, payload) {
+  const now = toDate(payload.now || new Date());
+  const manager = getUserById(state, payload.managerId);
+  ensureRole(manager, ROLE.MANAGER);
+  const shift = getShiftById(state, payload.shiftId);
+  if (shift.status !== "assigned" || !shift.assignedUserId) {
+    throw new AppError(400, "Shift must be assigned to nudge the assigned student.", "INVALID_STAFFING_ACTION");
+  }
+  if (shift.confirmedAt) {
+    throw new AppError(400, "Assigned student already confirmed this shift.", "ALREADY_CONFIRMED");
+  }
+
+  ensureStaffingActionAllowed(state, shift.id, STAFFING_ACTION.NUDGE_ASSIGNED, now);
+  const student = getUserById(state, shift.assignedUserId);
+  sendNotification(state, {
+    userId: student.id,
+    subject: "Manager follow-up: please confirm your shift",
+    body: `Please confirm your ${shift.roleNeeded} shift at ${shift.location}.`,
+    kind: "staffing_nudge",
+    now,
+    relatedShiftId: shift.id,
+  });
+
+  const actionEntry = logStaffingAction(state, {
+    shiftId: shift.id,
+    actionType: STAFFING_ACTION.NUDGE_ASSIGNED,
+    triggeredBy: manager.id,
+    targetUserIds: [student.id],
+    now,
+  });
+
+  return {
+    sentCount: 1,
+    targets: [student.id],
+    actionAt: actionEntry.createdAt,
+  };
+}
+
+function runStaffingNudgeCandidates(state, payload) {
+  const now = toDate(payload.now || new Date());
+  const manager = getUserById(state, payload.managerId);
+  ensureRole(manager, ROLE.MANAGER);
+  const shift = getShiftById(state, payload.shiftId);
+  if (shift.status !== "open") {
+    throw new AppError(400, "Only open shifts can be nudged to candidate pool.", "INVALID_STAFFING_ACTION");
+  }
+
+  ensureStaffingActionAllowed(state, shift.id, STAFFING_ACTION.NUDGE_CANDIDATES, now);
+
+  const eligibleCandidateIds = getEligibleCandidateIdsForShift(state, shift, now);
+  const requestedIds = Array.isArray(payload.candidateIds) ? payload.candidateIds : [];
+  const targetIds = (requestedIds.length ? requestedIds : eligibleCandidateIds.slice(0, 3)).filter((idValue) => eligibleCandidateIds.includes(idValue));
+
+  if (!targetIds.length) {
+    throw new AppError(400, "No eligible candidates are available to nudge.", "NO_ELIGIBLE_CANDIDATES");
+  }
+
+  for (const userId of targetIds) {
+    sendNotification(state, {
+      userId,
+      subject: "Open shift needs coverage",
+      body: `A manager flagged an open ${shift.roleNeeded} shift at ${shift.location}. If available, please claim it.`,
+      kind: "staffing_nudge",
+      now,
+      relatedShiftId: shift.id,
+    });
+  }
+
+  const actionEntry = logStaffingAction(state, {
+    shiftId: shift.id,
+    actionType: STAFFING_ACTION.NUDGE_CANDIDATES,
+    triggeredBy: manager.id,
+    targetUserIds: targetIds,
+    now,
+  });
+
+  return {
+    sentCount: targetIds.length,
+    targets: targetIds,
+    actionAt: actionEntry.createdAt,
+  };
+}
+
 function normalizeAvailabilitySlots(slots) {
   if (!Array.isArray(slots)) {
     throw new AppError(400, "slots must be an array", "INVALID_AVAILABILITY");
@@ -807,6 +929,168 @@ function getNoShowRiskShifts(state, nowValue) {
   });
 }
 
+function clamp(number, min, max) {
+  return Math.min(max, Math.max(min, number));
+}
+
+function getUpcomingShiftsForManager(state, nowValue) {
+  const now = toDate(nowValue || new Date());
+  return state.shifts.filter((shift) => toDate(shift.startAt) > now).sort((a, b) => toDate(a.startAt) - toDate(b.startAt));
+}
+
+function getStudentAttendanceSignal(state, studentId) {
+  const relevant = state.attendance.filter((entry) => entry.studentId === studentId && [ATTENDANCE_MARK.PRESENT, ATTENDANCE_MARK.NO_SHOW].includes(entry.mark));
+  if (!relevant.length) {
+    return { sampleSize: 0, noShowRate: null };
+  }
+  const noShowCount = relevant.filter((entry) => entry.mark === ATTENDANCE_MARK.NO_SHOW).length;
+  return {
+    sampleSize: relevant.length,
+    noShowRate: Number((noShowCount / relevant.length).toFixed(3)),
+  };
+}
+
+function getEligibleCandidateIdsForShift(state, shift, nowValue) {
+  const now = toDate(nowValue || new Date());
+  const students = state.users.filter((user) => user.role === ROLE.STUDENT);
+  const options = shift.assignedUserId ? { now, ignoreShiftId: shift.id } : { now };
+  return students
+    .filter((student) => student.id !== shift.assignedUserId)
+    .filter((student) => evaluateStudentForShift(state, student.id, shift, options).eligible)
+    .map((student) => student.id);
+}
+
+function getRiskLevel(score) {
+  if (score >= 75) return "critical";
+  if (score >= 55) return "high";
+  if (score >= 35) return "medium";
+  return "low";
+}
+
+function getShiftFillRiskItem(state, shift, nowValue) {
+  const now = toDate(nowValue || new Date());
+  const start = toDate(shift.startAt);
+  const hoursToStart = (start.getTime() - now.getTime()) / (1000 * 60 * 60);
+  const eligibleCandidateIds = getEligibleCandidateIdsForShift(state, shift, now);
+  const reasons = [];
+  const recommendedActions = [];
+  let score = 0;
+
+  if (shift.status === "open" || !shift.assignedUserId) {
+    score += 45;
+    reasons.push("Shift is currently unfilled.");
+  }
+
+  if (hoursToStart <= 12) {
+    score += 28;
+    reasons.push("Shift starts within 12 hours.");
+  } else if (hoursToStart <= 24) {
+    score += 20;
+    reasons.push("Shift starts within 24 hours.");
+  } else if (hoursToStart <= 48) {
+    score += 12;
+  } else if (hoursToStart <= 72) {
+    score += 7;
+  }
+
+  if (eligibleCandidateIds.length === 0) {
+    score += 24;
+    reasons.push("No eligible candidates are available right now.");
+  } else if (eligibleCandidateIds.length === 1) {
+    score += 16;
+    reasons.push("Only one eligible backup candidate is available.");
+  } else if (eligibleCandidateIds.length <= 3) {
+    score += 9;
+    reasons.push("Eligible candidate pool is small.");
+  }
+
+  if (shift.status === "assigned" && shift.assignedUserId) {
+    const signal = getStudentAttendanceSignal(state, shift.assignedUserId);
+    if (!shift.confirmedAt) {
+      score += 18;
+      reasons.push("Assigned student has not confirmed yet.");
+      const dueAt = shift.confirmationDueAt ? toDate(shift.confirmationDueAt) : new Date(start.getTime() - 2 * 60 * 60 * 1000);
+      if (now >= dueAt) {
+        score += 20;
+        reasons.push("Confirmation deadline has passed.");
+      } else if (dueAt.getTime() - now.getTime() <= 2 * 60 * 60 * 1000) {
+        score += 9;
+        reasons.push("Confirmation deadline is approaching.");
+      }
+      recommendedActions.push({
+        type: STAFFING_ACTION.NUDGE_ASSIGNED,
+        label: "Nudge assigned student",
+      });
+    } else {
+      score -= 8;
+    }
+
+    if (signal.sampleSize > 0 && signal.noShowRate !== null) {
+      if (signal.noShowRate >= 0.5) {
+        score += 12;
+        reasons.push("Assigned student has elevated historical no-show rate.");
+      } else if (signal.noShowRate >= 0.25) {
+        score += 6;
+      } else if (signal.noShowRate === 0) {
+        score -= 4;
+      }
+    }
+  }
+
+  if (shift.status === "open") {
+    if (eligibleCandidateIds.length > 0) {
+      recommendedActions.push({
+        type: STAFFING_ACTION.NUDGE_CANDIDATES,
+        label: "Nudge top eligible candidates",
+        candidateIds: eligibleCandidateIds.slice(0, 3),
+      });
+    }
+  }
+
+  const fillRiskScore = clamp(Math.round(score), 0, 100);
+
+  return {
+    shiftId: shift.id,
+    fillRiskScore,
+    riskLevel: getRiskLevel(fillRiskScore),
+    reasons: reasons.slice(0, 4),
+    recommendedActions,
+    eligibleCandidateIds,
+    status: shift.status,
+    startAt: shift.startAt,
+    endAt: shift.endAt,
+    roleNeeded: shift.roleNeeded,
+    location: shift.location,
+    assignedUserId: shift.assignedUserId || null,
+  };
+}
+
+function getStaffingCopilotDashboard(state, nowValue) {
+  const now = toDate(nowValue || new Date());
+  const horizonEnd = new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000);
+  const candidateShifts = state.shifts.filter((shift) => {
+    if (!["open", "assigned"].includes(shift.status)) return false;
+    const start = toDate(shift.startAt);
+    return start > now && start <= horizonEnd;
+  });
+
+  const items = candidateShifts
+    .map((shift) => getShiftFillRiskItem(state, shift, now))
+    .sort((a, b) => {
+      if (b.fillRiskScore !== a.fillRiskScore) return b.fillRiskScore - a.fillRiskScore;
+      return toDate(a.startAt) - toDate(b.startAt);
+    });
+
+  return {
+    summary: {
+      criticalCount: items.filter((item) => item.riskLevel === "critical").length,
+      highCount: items.filter((item) => item.riskLevel === "high").length,
+      unfilledCount: items.filter((item) => item.status === "open").length,
+    },
+    items,
+  };
+}
+
 function getManagerDashboard(state, managerId, nowValue) {
   const manager = getUserById(state, managerId);
   ensureRole(manager, ROLE.MANAGER);
@@ -826,6 +1110,8 @@ function getManagerDashboard(state, managerId, nowValue) {
   const presentCount = attendance.filter((entry) => entry.mark === ATTENDANCE_MARK.PRESENT).length;
   const noShowCount = attendance.filter((entry) => entry.mark === ATTENDANCE_MARK.NO_SHOW).length;
   const noShowRate = presentCount + noShowCount === 0 ? 0 : Number((noShowCount / (presentCount + noShowCount)).toFixed(3));
+  const staffingCopilot = getStaffingCopilotDashboard(state, now);
+  const upcomingShifts = getUpcomingShiftsForManager(state, now);
 
   return {
     metrics: {
@@ -840,6 +1126,8 @@ function getManagerDashboard(state, managerId, nowValue) {
     noShowRisk,
     pendingSwapRequests,
     pendingDropRequests,
+    staffingCopilot,
+    upcomingShifts,
   };
 }
 
@@ -885,6 +1173,7 @@ function listUsersForUi(state) {
 function createSeedState(nowValue = new Date()) {
   const now = toDate(nowValue);
   const plusHours = (hours) => new Date(now.getTime() + hours * 60 * 60 * 1000).toISOString();
+  const minusHours = (hours) => new Date(now.getTime() - hours * 60 * 60 * 1000).toISOString();
   const plusDays = (days, hour, minute) => {
     const target = new Date(now.getTime() + days * 24 * 60 * 60 * 1000);
     target.setUTCHours(hour, minute, 0, 0);
@@ -966,6 +1255,34 @@ function createSeedState(nowValue = new Date()) {
       createdBy: manager.id,
     },
     {
+      id: "shift_open_3",
+      startAt: plusDays(3, 9, 0),
+      endAt: plusDays(3, 12, 0),
+      roleNeeded: "front_desk",
+      location: "FitRec Front Desk",
+      status: "open",
+      assignedUserId: null,
+      claimedAt: null,
+      confirmationDueAt: null,
+      confirmedAt: null,
+      reminderSentAt: null,
+      createdBy: manager.id,
+    },
+    {
+      id: "shift_open_4",
+      startAt: plusDays(5, 11, 0),
+      endAt: plusDays(5, 14, 0),
+      roleNeeded: "library",
+      location: "Pardee Library",
+      status: "open",
+      assignedUserId: null,
+      claimedAt: null,
+      confirmationDueAt: null,
+      confirmedAt: null,
+      reminderSentAt: null,
+      createdBy: manager.id,
+    },
+    {
       id: "shift_assigned_pending",
       startAt: plusHours(3),
       endAt: plusHours(5),
@@ -979,11 +1296,118 @@ function createSeedState(nowValue = new Date()) {
       reminderSentAt: null,
       createdBy: manager.id,
     },
+    {
+      id: "shift_assigned_pending_2",
+      startAt: plusDays(1, 10, 0),
+      endAt: plusDays(1, 12, 0),
+      roleNeeded: "library",
+      location: "Mugar Memorial Library",
+      status: "assigned",
+      assignedUserId: studentB.id,
+      claimedAt: minusHours(8),
+      confirmationDueAt: computeConfirmationDueAt(plusDays(1, 10, 0), now),
+      confirmedAt: null,
+      reminderSentAt: null,
+      createdBy: manager.id,
+    },
+    {
+      id: "shift_assigned_pending_3",
+      startAt: plusDays(2, 17, 0),
+      endAt: plusDays(2, 19, 0),
+      roleNeeded: "front_desk",
+      location: "George Sherman Union",
+      status: "assigned",
+      assignedUserId: studentC.id,
+      claimedAt: minusHours(6),
+      confirmationDueAt: computeConfirmationDueAt(plusDays(2, 17, 0), now),
+      confirmedAt: null,
+      reminderSentAt: null,
+      createdBy: manager.id,
+    },
+    {
+      id: "shift_assigned_confirmed_1",
+      startAt: plusDays(4, 13, 0),
+      endAt: plusDays(4, 15, 0),
+      roleNeeded: "library",
+      location: "Mugar Memorial Library",
+      status: "assigned",
+      assignedUserId: studentA.id,
+      claimedAt: minusHours(24),
+      confirmationDueAt: computeConfirmationDueAt(plusDays(4, 13, 0), now),
+      confirmedAt: minusHours(2),
+      reminderSentAt: null,
+      createdBy: manager.id,
+    },
+    {
+      id: "shift_assigned_confirmed_2",
+      startAt: plusDays(6, 9, 30),
+      endAt: plusDays(6, 11, 30),
+      roleNeeded: "front_desk",
+      location: "Questrom Help Desk",
+      status: "assigned",
+      assignedUserId: studentC.id,
+      claimedAt: minusHours(20),
+      confirmationDueAt: computeConfirmationDueAt(plusDays(6, 9, 30), now),
+      confirmedAt: minusHours(3),
+      reminderSentAt: null,
+      createdBy: manager.id,
+    },
+    {
+      id: "shift_completed_1",
+      startAt: plusDays(-1, 14, 0),
+      endAt: plusDays(-1, 16, 0),
+      roleNeeded: "library",
+      location: "Mugar Memorial Library",
+      status: "completed",
+      assignedUserId: studentB.id,
+      claimedAt: plusDays(-2, 12, 0),
+      confirmationDueAt: computeConfirmationDueAt(plusDays(-1, 14, 0), now),
+      confirmedAt: plusDays(-1, 10, 0),
+      reminderSentAt: plusDays(-1, 8, 0),
+      createdBy: manager.id,
+    },
   ];
 
+  const classConflictDay = toDate(plusDays(1, 0, 0)).getUTCDay();
   const availabilitySlots = [
-    { id: id(), userId: studentA.id, dayOfWeek: toDate(plusDays(1, 0, 0)).getUTCDay(), startTime: "09:00", endTime: "11:00", busy: true },
-    { id: id(), userId: studentB.id, dayOfWeek: toDate(plusDays(1, 0, 0)).getUTCDay(), startTime: "13:00", endTime: "14:30", busy: true },
+    { id: id(), userId: studentA.id, dayOfWeek: classConflictDay, startTime: "09:00", endTime: "11:00", busy: true },
+    { id: id(), userId: studentA.id, dayOfWeek: 1, startTime: "13:00", endTime: "14:30", busy: true },
+    { id: id(), userId: studentA.id, dayOfWeek: 1, startTime: "16:00", endTime: "17:00", busy: true },
+    { id: id(), userId: studentA.id, dayOfWeek: 2, startTime: "10:00", endTime: "11:30", busy: true },
+    { id: id(), userId: studentA.id, dayOfWeek: 2, startTime: "15:30", endTime: "17:00", busy: true },
+    { id: id(), userId: studentA.id, dayOfWeek: 3, startTime: "12:30", endTime: "14:00", busy: true },
+    { id: id(), userId: studentA.id, dayOfWeek: 4, startTime: "09:30", endTime: "11:00", busy: true },
+    { id: id(), userId: studentA.id, dayOfWeek: 4, startTime: "16:00", endTime: "17:30", busy: true },
+    { id: id(), userId: studentA.id, dayOfWeek: 5, startTime: "11:00", endTime: "12:30", busy: true },
+    { id: id(), userId: studentB.id, dayOfWeek: 1, startTime: "09:30", endTime: "11:00", busy: true },
+    { id: id(), userId: studentB.id, dayOfWeek: 1, startTime: "13:00", endTime: "15:00", busy: true },
+    { id: id(), userId: studentB.id, dayOfWeek: 2, startTime: "11:00", endTime: "12:30", busy: true },
+    { id: id(), userId: studentB.id, dayOfWeek: 2, startTime: "14:30", endTime: "16:00", busy: true },
+    { id: id(), userId: studentB.id, dayOfWeek: 3, startTime: "10:00", endTime: "11:30", busy: true },
+    { id: id(), userId: studentB.id, dayOfWeek: 3, startTime: "13:00", endTime: "14:30", busy: true },
+    { id: id(), userId: studentB.id, dayOfWeek: 4, startTime: "16:30", endTime: "18:00", busy: true },
+    { id: id(), userId: studentB.id, dayOfWeek: 5, startTime: "09:00", endTime: "10:30", busy: true },
+    { id: id(), userId: studentB.id, dayOfWeek: 5, startTime: "12:00", endTime: "13:30", busy: true },
+    { id: id(), userId: studentC.id, dayOfWeek: 1, startTime: "10:00", endTime: "11:30", busy: true },
+    { id: id(), userId: studentC.id, dayOfWeek: 1, startTime: "14:00", endTime: "15:30", busy: true },
+    { id: id(), userId: studentC.id, dayOfWeek: 2, startTime: "09:00", endTime: "10:30", busy: true },
+    { id: id(), userId: studentC.id, dayOfWeek: 3, startTime: "11:30", endTime: "13:00", busy: true },
+    { id: id(), userId: studentC.id, dayOfWeek: 3, startTime: "15:00", endTime: "16:30", busy: true },
+    { id: id(), userId: studentC.id, dayOfWeek: 4, startTime: "10:30", endTime: "12:00", busy: true },
+    { id: id(), userId: studentC.id, dayOfWeek: 4, startTime: "13:30", endTime: "15:00", busy: true },
+    { id: id(), userId: studentC.id, dayOfWeek: 5, startTime: "09:30", endTime: "11:00", busy: true },
+    { id: id(), userId: studentC.id, dayOfWeek: 5, startTime: "12:30", endTime: "14:00", busy: true },
+  ];
+
+  const attendance = [
+    {
+      id: id(),
+      shiftId: "shift_completed_1",
+      studentId: studentB.id,
+      mark: ATTENDANCE_MARK.EXCUSED,
+      markedBy: manager.id,
+      markedAt: minusHours(12),
+    },
   ];
 
   return {
@@ -993,7 +1417,7 @@ function createSeedState(nowValue = new Date()) {
     claims: [],
     swapRequests: [],
     dropRequests: [],
-    attendance: [],
+    attendance,
     messages: [
       {
         id: id(),
@@ -1008,6 +1432,7 @@ function createSeedState(nowValue = new Date()) {
     notifications: [],
     emailLog: [],
     smsLog: [],
+    staffingActions: [],
   };
 }
 
@@ -1016,6 +1441,7 @@ module.exports = {
   ATTENDANCE_MARK,
   CHANNEL,
   ROLE,
+  STAFFING_ACTION,
   canSendDm,
   claimShift,
   computeConfirmationDueAt,
@@ -1036,6 +1462,8 @@ module.exports = {
   listUsersForUi,
   replaceStudentAvailability,
   runReminderJob,
+  runStaffingNudgeAssigned,
+  runStaffingNudgeCandidates,
   sendMessage,
   sendNotification,
   setSmsOptIn,

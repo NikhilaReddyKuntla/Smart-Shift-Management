@@ -12,6 +12,12 @@
     peerId: null,
     threadId: null,
   },
+  managerShiftFilters: {
+    status: "all",
+    risk: "all",
+    query: "",
+  },
+  availabilityDraftByDay: Array.from({ length: 7 }, () => []),
   groupMessagesCache: [],
   dmMessagesCache: [],
   shiftThreadCache: {},
@@ -61,8 +67,15 @@ const el = {
   managerSettings: document.getElementById("managerSettings"),
   studentSettings: document.getElementById("studentSettings"),
   managerMetrics: document.getElementById("managerMetrics"),
+  staffingCopilotSummary: document.getElementById("staffingCopilotSummary"),
+  staffingActionResult: document.getElementById("staffingActionResult"),
+  staffingCopilotList: document.getElementById("staffingCopilotList"),
   managerPendingConfirmations: document.getElementById("managerPendingConfirmations"),
   createShiftForm: document.getElementById("createShiftForm"),
+  managerShiftStatusFilter: document.getElementById("managerShiftStatusFilter"),
+  managerShiftRiskFilter: document.getElementById("managerShiftRiskFilter"),
+  managerShiftSearch: document.getElementById("managerShiftSearch"),
+  managerUpcomingShifts: document.getElementById("managerUpcomingShifts"),
   pendingSwaps: document.getElementById("pendingSwaps"),
   pendingDrops: document.getElementById("pendingDrops"),
   noShowRisk: document.getElementById("noShowRisk"),
@@ -75,7 +88,7 @@ const el = {
   studentRequests: document.getElementById("studentRequests"),
   studentNotifications: document.getElementById("studentNotifications"),
   smsToggle: document.getElementById("smsToggle"),
-  availabilityGrid: document.getElementById("availabilityGrid"),
+  availabilityEditor: document.getElementById("availabilityEditor"),
   saveAvailabilityBtn: document.getElementById("saveAvailabilityBtn"),
   availabilityResult: document.getElementById("availabilityResult"),
   messageSearchInput: document.getElementById("messageSearchInput"),
@@ -276,9 +289,96 @@ function getUserName(userId) {
   return user ? user.name : userId || "Unknown";
 }
 
+function riskBadge(level) {
+  return `<span class="risk-chip risk-${level}">${level}</span>`;
+}
+
+function getCopilotItemByShiftId(shiftId) {
+  return state.dashboard?.staffingCopilot?.items?.find((item) => item.shiftId === shiftId) || null;
+}
+
+function renderStaffingCopilot(dashboard) {
+  const summary = dashboard.staffingCopilot?.summary || { criticalCount: 0, highCount: 0, unfilledCount: 0 };
+  el.staffingCopilotSummary.innerHTML = [
+    ["Critical Risks", summary.criticalCount],
+    ["High Risks", summary.highCount],
+    ["Unfilled Shifts", summary.unfilledCount],
+  ]
+    .map(
+      ([label, value]) => `
+      <div class="metric">
+        <div class="label">${label}</div>
+        <div class="value">${value}</div>
+      </div>
+    `,
+    )
+    .join("");
+
+  const items = dashboard.staffingCopilot?.items || [];
+  renderList(
+    el.staffingCopilotList,
+    items,
+    (item) => `
+      <div class="list-item">
+        <div class="item-title">${item.roleNeeded} · ${item.location}</div>
+        <div class="item-meta">${prettyDate(item.startAt)} · Score: ${item.fillRiskScore} ${riskBadge(item.riskLevel)}</div>
+        <div class="item-meta">Reasons: ${item.reasons.length ? item.reasons.join(" | ") : "Stable staffing conditions."}</div>
+        <div class="item-actions">
+          ${item.recommendedActions
+            .map((action) => {
+              if (action.type === "nudge_assigned") {
+                return `<button data-staffing-action="nudge_assigned" data-shift-id="${item.shiftId}">Nudge Assigned</button>`;
+              }
+              return `<button data-staffing-action="nudge_candidates" data-shift-id="${item.shiftId}">Nudge Candidates</button>`;
+            })
+            .join("")}
+        </div>
+      </div>
+    `,
+    "No copilot risks in the next 7 days.",
+  );
+}
+
+function renderManagerUpcomingShifts(dashboard) {
+  const raw = dashboard.upcomingShifts || [];
+  const query = state.managerShiftFilters.query.trim().toLowerCase();
+  const filtered = raw.filter((shift) => {
+    if (state.managerShiftFilters.status !== "all" && shift.status !== state.managerShiftFilters.status) return false;
+    const copilotItem = getCopilotItemByShiftId(shift.id);
+    if (state.managerShiftFilters.risk !== "all" && (copilotItem?.riskLevel || "low") !== state.managerShiftFilters.risk) return false;
+    if (!query) return true;
+    const assignee = getUserName(shift.assignedUserId);
+    const text = `${shift.roleNeeded} ${shift.location} ${assignee}`.toLowerCase();
+    return text.includes(query);
+  });
+
+  renderList(
+    el.managerUpcomingShifts,
+    filtered,
+    (shift) => {
+      const copilotItem = getCopilotItemByShiftId(shift.id);
+      const risk = copilotItem ? `${copilotItem.fillRiskScore} ${riskBadge(copilotItem.riskLevel)}` : "n/a";
+      return `
+        <div class="list-item">
+          <div class="item-title">${shift.roleNeeded} · ${shift.location}</div>
+          <div class="item-meta">${prettyDate(shift.startAt)} - ${prettyDate(shift.endAt)}</div>
+          <div class="item-meta">Status: ${shift.status} · Student: ${shift.assignedUserId ? getUserName(shift.assignedUserId) : "Unassigned"}</div>
+          <div class="item-meta">Confirmed: ${shift.confirmedAt ? "Yes" : "No"} · Fill Risk: ${risk}</div>
+        </div>
+      `;
+    },
+    "No shifts match current filters.",
+  );
+}
+
 function renderManagerView() {
   const dashboard = state.dashboard;
+  el.managerShiftStatusFilter.value = state.managerShiftFilters.status;
+  el.managerShiftRiskFilter.value = state.managerShiftFilters.risk;
+  el.managerShiftSearch.value = state.managerShiftFilters.query;
   renderManagerMetrics(dashboard.metrics);
+  renderStaffingCopilot(dashboard);
+  renderManagerUpcomingShifts(dashboard);
 
   renderList(
     el.noShowRisk,
@@ -454,22 +554,139 @@ function renderStudentView() {
   el.studentRequests.innerHTML = requestItems.length > 0 ? `<div class="list">${requestItems.join("")}</div>` : `<p class="hint">No swap/drop requests yet.</p>`;
 }
 
-function renderAvailabilityGrid(slots) {
-  const selected = new Set(slots.map((slot) => `${slot.dayOfWeek}|${slot.startTime}`));
-  const head = `<tr><th>Time</th>${days.map((day, index) => `<th>${day}<br/><small>${index}</small></th>`).join("")}</tr>`;
-  const rows = halfHourSlots
-    .map((time) => {
-      const cells = days
-        .map((_, dayIdx) => {
-          const key = `${dayIdx}|${time}`;
-          const checked = selected.has(key) ? "checked" : "";
-          return `<td><input type="checkbox" data-day="${dayIdx}" data-start="${time}" ${checked} /></td>`;
-        })
-        .join("");
-      return `<tr><td>${time}</td>${cells}</tr>`;
+function parseHalfHourIndex(timeValue) {
+  const [h, m] = String(timeValue).split(":").map(Number);
+  return h * 2 + (m >= 30 ? 1 : 0);
+}
+
+function getTimeFromHalfHourIndex(index) {
+  return halfHourSlots[Math.max(0, Math.min(index, 47))];
+}
+
+function buildAvailabilityDraftByDay(slots) {
+  const draft = Array.from({ length: 7 }, () => []);
+  for (const slot of slots || []) {
+    const day = Number(slot.dayOfWeek);
+    if (!Number.isInteger(day) || day < 0 || day > 6) continue;
+    const startIndex = parseHalfHourIndex(slot.startTime);
+    const endIndex = parseHalfHourIndex(slot.endTime);
+    if (endIndex <= startIndex) continue;
+    draft[day].push({
+      startIndex: Math.max(0, Math.min(startIndex, 46)),
+      endIndex: Math.max(1, Math.min(endIndex, 47)),
+    });
+  }
+
+  draft.forEach((blocks) => blocks.sort((a, b) => a.startIndex - b.startIndex));
+  return draft;
+}
+
+function renderAvailabilityEditor() {
+  el.availabilityEditor.innerHTML = days
+    .map((dayLabel, dayIdx) => {
+      const blocks = state.availabilityDraftByDay[dayIdx] || [];
+      return `
+        <div class="availability-day-card">
+          <div class="availability-day-head">
+            <h4>${dayLabel}</h4>
+            <button type="button" class="ghost" data-add-block-day="${dayIdx}">Add class block</button>
+          </div>
+          <div class="availability-day-body">
+            ${
+              blocks.length
+                ? blocks
+                    .map(
+                      (block, blockIdx) => `
+                <div class="availability-block">
+                  <div class="availability-block-head">
+                    <span>Block ${blockIdx + 1}</span>
+                    <button type="button" class="ghost" data-remove-block-day="${dayIdx}" data-remove-block-index="${blockIdx}">Remove</button>
+                  </div>
+                  <div class="availability-slider-row">
+                    <label>
+                      Start
+                      <input type="range" min="0" max="46" step="1" data-slider-type="start" data-day="${dayIdx}" data-block-index="${blockIdx}" value="${block.startIndex}" />
+                    </label>
+                    <span class="item-meta">${getTimeFromHalfHourIndex(block.startIndex)}</span>
+                  </div>
+                  <div class="availability-slider-row">
+                    <label>
+                      End
+                      <input type="range" min="1" max="47" step="1" data-slider-type="end" data-day="${dayIdx}" data-block-index="${blockIdx}" value="${block.endIndex}" />
+                    </label>
+                    <span class="item-meta">${getTimeFromHalfHourIndex(block.endIndex)}</span>
+                  </div>
+                </div>
+              `,
+                    )
+                    .join("")
+                : `<p class="hint">No class blocks yet for ${dayLabel}.</p>`
+            }
+          </div>
+        </div>
+      `;
     })
     .join("");
-  el.availabilityGrid.innerHTML = `${head}${rows}`;
+}
+
+function upsertAvailabilityBlock(dayIdx, blockIdx, type, value) {
+  const dayBlocks = state.availabilityDraftByDay[dayIdx];
+  if (!dayBlocks || !dayBlocks[blockIdx]) return;
+  const block = dayBlocks[blockIdx];
+  const numericValue = Number(value);
+
+  if (type === "start") {
+    block.startIndex = Math.max(0, Math.min(numericValue, 46));
+    if (block.endIndex <= block.startIndex) {
+      block.endIndex = Math.min(47, block.startIndex + 1);
+    }
+  } else {
+    block.endIndex = Math.max(1, Math.min(numericValue, 47));
+    if (block.endIndex <= block.startIndex) {
+      block.startIndex = Math.max(0, block.endIndex - 1);
+    }
+  }
+
+  dayBlocks.sort((a, b) => a.startIndex - b.startIndex);
+}
+
+function addAvailabilityBlock(dayIdx) {
+  const dayBlocks = state.availabilityDraftByDay[dayIdx] || [];
+  const lastBlock = dayBlocks[dayBlocks.length - 1];
+  const startIndex = lastBlock ? Math.min(46, lastBlock.endIndex + 1) : 18;
+  const endIndex = Math.min(47, startIndex + 2);
+  dayBlocks.push({ startIndex, endIndex });
+  dayBlocks.sort((a, b) => a.startIndex - b.startIndex);
+  state.availabilityDraftByDay[dayIdx] = dayBlocks;
+}
+
+function removeAvailabilityBlock(dayIdx, blockIdx) {
+  const dayBlocks = state.availabilityDraftByDay[dayIdx] || [];
+  dayBlocks.splice(blockIdx, 1);
+  state.availabilityDraftByDay[dayIdx] = dayBlocks;
+}
+
+function validateAndSerializeAvailabilityDraft() {
+  const slots = [];
+  for (let dayIdx = 0; dayIdx < state.availabilityDraftByDay.length; dayIdx += 1) {
+    const blocks = [...(state.availabilityDraftByDay[dayIdx] || [])].sort((a, b) => a.startIndex - b.startIndex);
+    for (let idx = 0; idx < blocks.length; idx += 1) {
+      const block = blocks[idx];
+      if (block.endIndex <= block.startIndex) {
+        throw new Error(`Invalid block in ${days[dayIdx]}: end must be after start.`);
+      }
+      const prev = blocks[idx - 1];
+      if (prev && block.startIndex < prev.endIndex) {
+        throw new Error(`Overlapping class blocks found on ${days[dayIdx]}.`);
+      }
+      slots.push({
+        dayOfWeek: dayIdx,
+        startTime: getTimeFromHalfHourIndex(block.startIndex),
+        endTime: getTimeFromHalfHourIndex(block.endIndex),
+      });
+    }
+  }
+  return slots;
 }
 
 function applyRolePanels() {
@@ -778,7 +995,8 @@ async function refreshDashboard() {
     state.dashboard = dashboard;
     state.availability = availability.slots;
     renderStudentView();
-    renderAvailabilityGrid(availability.slots);
+    state.availabilityDraftByDay = buildAvailabilityDraftByDay(availability.slots);
+    renderAvailabilityEditor();
   }
 
   state.activeConversation = normalizeConversation(state.activeConversation);
@@ -943,6 +1161,42 @@ el.runReminderBtn.addEventListener("click", async () => {
   }
 });
 
+el.staffingCopilotList.addEventListener("click", async (event) => {
+  const btn = event.target.closest("button[data-staffing-action]");
+  if (!btn) return;
+  try {
+    const action = btn.dataset.staffingAction;
+    const shiftId = btn.dataset.shiftId;
+    const endpoint = action === "nudge_assigned" ? "/api/staffing/actions/nudge-assigned" : "/api/staffing/actions/nudge-candidates";
+    const result = await api(endpoint, {
+      method: "POST",
+      body: { shiftId },
+    });
+    el.staffingActionResult.textContent = `Action sent to ${result.sentCount} user(s).`;
+    await refreshDashboard();
+  } catch (error) {
+    showError(error.message);
+  }
+});
+
+el.managerShiftStatusFilter.addEventListener("change", () => {
+  if (!state.dashboard) return;
+  state.managerShiftFilters.status = el.managerShiftStatusFilter.value;
+  renderManagerUpcomingShifts(state.dashboard);
+});
+
+el.managerShiftRiskFilter.addEventListener("change", () => {
+  if (!state.dashboard) return;
+  state.managerShiftFilters.risk = el.managerShiftRiskFilter.value;
+  renderManagerUpcomingShifts(state.dashboard);
+});
+
+el.managerShiftSearch.addEventListener("input", () => {
+  if (!state.dashboard) return;
+  state.managerShiftFilters.query = el.managerShiftSearch.value || "";
+  renderManagerUpcomingShifts(state.dashboard);
+});
+
 el.confirmationTasks.addEventListener("click", async (event) => {
   const btn = event.target.closest("button[data-confirm-shift]");
   if (!btn) return;
@@ -1017,15 +1271,7 @@ el.smsToggle.addEventListener("change", async () => {
 
 el.saveAvailabilityBtn.addEventListener("click", async () => {
   try {
-    const selectedSlots = [];
-    el.availabilityGrid.querySelectorAll("input[type='checkbox']:checked").forEach((input) => {
-      const dayOfWeek = Number(input.dataset.day);
-      const startTime = input.dataset.start;
-      const [h, m] = startTime.split(":").map(Number);
-      const endMinutes = h * 60 + m + 30;
-      const endTime = `${String(Math.floor(endMinutes / 60)).padStart(2, "0")}:${String(endMinutes % 60).padStart(2, "0")}`;
-      selectedSlots.push({ dayOfWeek, startTime, endTime });
-    });
+    const selectedSlots = validateAndSerializeAvailabilityDraft();
 
     await api("/api/availability", {
       method: "PUT",
@@ -1037,6 +1283,28 @@ el.saveAvailabilityBtn.addEventListener("click", async () => {
   } catch (error) {
     showError(error.message);
   }
+});
+
+el.availabilityEditor.addEventListener("click", (event) => {
+  const addBtn = event.target.closest("button[data-add-block-day]");
+  if (addBtn) {
+    addAvailabilityBlock(Number(addBtn.dataset.addBlockDay));
+    renderAvailabilityEditor();
+    return;
+  }
+
+  const removeBtn = event.target.closest("button[data-remove-block-day]");
+  if (removeBtn) {
+    removeAvailabilityBlock(Number(removeBtn.dataset.removeBlockDay), Number(removeBtn.dataset.removeBlockIndex));
+    renderAvailabilityEditor();
+  }
+});
+
+el.availabilityEditor.addEventListener("input", (event) => {
+  const slider = event.target.closest("input[data-slider-type]");
+  if (!slider) return;
+  upsertAvailabilityBlock(Number(slider.dataset.day), Number(slider.dataset.blockIndex), slider.dataset.sliderType, slider.value);
+  renderAvailabilityEditor();
 });
 
 el.channelList.addEventListener("click", async (event) => {

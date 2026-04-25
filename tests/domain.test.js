@@ -10,7 +10,10 @@ const {
   decideDropRequest,
   decideSwapRequest,
   getManagerDashboard,
+  getStudentAvailability,
   runReminderJob,
+  runStaffingNudgeAssigned,
+  runStaffingNudgeCandidates,
   sendMessage,
   setSmsOptIn,
   upsertAttendance,
@@ -302,4 +305,76 @@ test("messaging permissions enforce DM and shift-thread rules", () => {
       return true;
     },
   );
+});
+
+test("seed state includes expanded shifts and medium synthetic class schedules", () => {
+  const state = createSeedState(baseNow);
+  const openCount = state.shifts.filter((shift) => shift.status === "open").length;
+  const assignedCount = state.shifts.filter((shift) => shift.status === "assigned").length;
+  const completedCount = state.shifts.filter((shift) => shift.status === "completed").length;
+
+  assert.equal(state.shifts.length >= 10, true);
+  assert.equal(openCount >= 4, true);
+  assert.equal(assignedCount >= 5, true);
+  assert.equal(completedCount >= 1, true);
+
+  for (const studentId of ["u_student_1", "u_student_2", "u_student_3"]) {
+    const slots = getStudentAvailability(state, studentId);
+    assert.equal(slots.length >= 8 && slots.length <= 12, true);
+  }
+});
+
+test("staffing copilot ranks urgent unconfirmed shifts above confirmed shifts", () => {
+  const state = createSeedState(baseNow);
+  const dashboard = getManagerDashboard(state, "u_manager_1", baseNow);
+  const urgent = dashboard.staffingCopilot.items.find((item) => item.shiftId === "shift_assigned_pending");
+  const confirmed = dashboard.staffingCopilot.items.find((item) => item.shiftId === "shift_assigned_confirmed_1");
+
+  assert.ok(urgent);
+  assert.ok(confirmed);
+  assert.equal(urgent.fillRiskScore > confirmed.fillRiskScore, true);
+  assert.equal(urgent.recommendedActions.some((action) => action.type === "nudge_assigned"), true);
+});
+
+test("nudge assigned action sends outreach and enforces cooldown", () => {
+  const state = createSeedState(baseNow);
+  const first = runStaffingNudgeAssigned(state, {
+    managerId: "u_manager_1",
+    shiftId: "shift_assigned_pending",
+    now: baseNow,
+  });
+
+  assert.equal(first.sentCount, 1);
+  assert.equal(first.targets[0], "u_student_1");
+  assert.equal(state.notifications.some((entry) => entry.kind === "staffing_nudge" && entry.userId === "u_student_1"), true);
+
+  assert.throws(
+    () => {
+      runStaffingNudgeAssigned(state, {
+        managerId: "u_manager_1",
+        shiftId: "shift_assigned_pending",
+        now: new Date(baseNow.getTime() + 30 * 60 * 1000),
+      });
+    },
+    (error) => {
+      assert.equal(error.code, "STAFFING_ACTION_COOLDOWN");
+      return true;
+    },
+  );
+});
+
+test("nudge candidates action targets eligible users and honors sms opt-in", () => {
+  const state = createSeedState(baseNow);
+  const smsBefore = state.smsLog.length;
+  const result = runStaffingNudgeCandidates(state, {
+    managerId: "u_manager_1",
+    shiftId: "shift_open_2",
+    candidateIds: ["u_student_2"],
+    now: baseNow,
+  });
+
+  assert.equal(result.sentCount, 1);
+  assert.equal(result.targets[0], "u_student_2");
+  assert.equal(state.notifications.some((entry) => entry.kind === "staffing_nudge" && entry.userId === "u_student_2"), true);
+  assert.equal(state.smsLog.length, smsBefore + 1);
 });

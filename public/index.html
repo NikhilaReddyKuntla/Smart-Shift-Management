@@ -58,6 +58,12 @@
           <section id="view-overview" class="view-section active">
             <div id="managerOverview" class="role-panel hidden">
               <div id="managerMetrics" class="grid metrics"></div>
+              <article class="card">
+                <h3>Staffing Copilot</h3>
+                <div id="staffingCopilotSummary" class="grid three-col"></div>
+                <div id="staffingActionResult" class="hint"></div>
+                <div id="staffingCopilotList"></div>
+              </article>
               <div class="grid two-col">
                 <article class="card">
                   <h3>No-show Risk</h3>
@@ -115,6 +121,35 @@
                   <div id="attendanceList"></div>
                 </article>
               </div>
+              <article class="card">
+                <h3>All Upcoming Shifts</h3>
+                <div class="inline-form">
+                  <label>
+                    Status
+                    <select id="managerShiftStatusFilter">
+                      <option value="all">All</option>
+                      <option value="open">Open</option>
+                      <option value="assigned">Assigned</option>
+                      <option value="completed">Completed</option>
+                    </select>
+                  </label>
+                  <label>
+                    Risk
+                    <select id="managerShiftRiskFilter">
+                      <option value="all">All</option>
+                      <option value="critical">Critical</option>
+                      <option value="high">High</option>
+                      <option value="medium">Medium</option>
+                      <option value="low">Low</option>
+                    </select>
+                  </label>
+                  <label>
+                    Search
+                    <input id="managerShiftSearch" placeholder="Role, location, or assignee" />
+                  </label>
+                </div>
+                <div id="managerUpcomingShifts"></div>
+              </article>
             </div>
 
             <div id="studentShifts" class="role-panel hidden">
@@ -157,10 +192,8 @@
             <div id="studentAvailabilityPanel" class="role-panel hidden">
               <article class="card">
                 <h3>Class Schedule Busy Grid (30-min slots)</h3>
-                <p class="hint">Mark slots as busy. Eligibility checks block shifts overlapping these slots.</p>
-                <div class="availability-wrap">
-                  <table id="availabilityGrid"></table>
-                </div>
+                <p class="hint">Use day timelines to add class blocks. Eligibility checks block overlapping shifts.</p>
+                <div id="availabilityEditor" class="availability-editor"></div>
                 <button id="saveAvailabilityBtn">Save Busy Slots</button>
                 <div id="availabilityResult" class="hint"></div>
               </article>

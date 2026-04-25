@@ -687,12 +687,17 @@ button.danger {
 
 .availability-cell {
   cursor: crosshair;
-  background: #ffffff;
+  background: #fdfefe;
   transition: background 0.08s ease;
 }
 
 .availability-cell.busy {
-  background: #d8f3eb;
+  background: #87c9b4;
+  border-color: #4d9b84;
+}
+
+.availability-cell.busy:hover {
+  background: #74bda7;
 }
 
 table {

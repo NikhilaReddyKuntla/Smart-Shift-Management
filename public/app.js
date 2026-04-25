@@ -1265,13 +1265,31 @@ el.saveAvailabilityBtn.addEventListener("click", async () => {
   try {
     const selectedSlots = serializeAvailabilityBusyCells();
 
-    await api("/api/availability", {
+    const result = await api("/api/availability", {
       method: "PUT",
       body: { slots: selectedSlots },
     });
 
+    const savedSlots = Array.isArray(result.slots)
+      ? result.slots
+      : selectedSlots.map((slot, index) => ({
+          ...slot,
+          id: `local_${index}`,
+          userId: state.user?.id,
+          busy: true,
+        }));
+
+    state.availability = savedSlots;
+    state.availabilityBusyCells = expandAvailabilitySlotsToBusyCells(savedSlots);
+    endAvailabilityPaint();
+    renderAvailabilityEditor();
+
     el.availabilityResult.textContent = `Saved ${selectedSlots.length} busy slots.`;
-    await refreshDashboard();
+    if (state.user?.role === "student") {
+      const dashboard = await api("/api/dashboard/student");
+      state.dashboard = dashboard;
+      renderStudentView();
+    }
   } catch (error) {
     showError(error.message);
   }

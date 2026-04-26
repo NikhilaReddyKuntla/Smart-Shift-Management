@@ -257,27 +257,43 @@
           <section id="view-settings" class="view-section">
             <div id="managerSettings" class="role-panel hidden">
               <article class="card">
-                <h3>Manager Notification Preferences</h3>
-                <label class="toggle">
-                  <input id="managerSmsToggle" type="checkbox" />
-                  SMS Opt-in
+                <h3>Notifications</h3>
+                <label class="preference-row" for="managerSmsToggle">
+                  <span class="preference-label">SMS Alerts</span>
+                  <span class="switch">
+                    <input id="managerSmsToggle" type="checkbox" />
+                    <span class="switch-track" aria-hidden="true"></span>
+                  </span>
                 </label>
-                <label class="toggle">
-                  <input id="managerSlackToggle" type="checkbox" />
-                  Slack Opt-in
+                <label class="preference-row" for="managerSlackToggle">
+                  <span class="preference-label">Slack Alerts</span>
+                  <span class="switch">
+                    <input id="managerSlackToggle" type="checkbox" />
+                    <span class="switch-track" aria-hidden="true"></span>
+                  </span>
                 </label>
-                <p class="hint">In-app and email notifications are always enabled.</p>
+                <p class="hint">In-app and email are always enabled.</p>
               </article>
             </div>
 
             <div id="studentSettings" class="role-panel hidden">
               <article class="card">
-                <h3>Notification Preferences</h3>
-                <label class="toggle">
-                  <input id="smsToggle" type="checkbox" />
-                  SMS Opt-in
+                <h3>Notifications</h3>
+                <label class="preference-row" for="studentSmsToggle">
+                  <span class="preference-label">SMS Alerts</span>
+                  <span class="switch">
+                    <input id="studentSmsToggle" type="checkbox" />
+                    <span class="switch-track" aria-hidden="true"></span>
+                  </span>
                 </label>
-                <p class="hint">In-app and email notifications are always enabled.</p>
+                <label class="preference-row" for="studentSlackToggle">
+                  <span class="preference-label">Slack Alerts</span>
+                  <span class="switch">
+                    <input id="studentSlackToggle" type="checkbox" />
+                    <span class="switch-track" aria-hidden="true"></span>
+                  </span>
+                </label>
+                <p class="hint">In-app and email are always enabled.</p>
               </article>
             </div>
           </section>

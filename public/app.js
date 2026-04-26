@@ -35,7 +35,7 @@ const navConfigByRole = {
     { id: "shifts", label: "Shifts", subtitle: "Publish upcoming shifts and record attendance outcomes." },
     { id: "requests", label: "Requests", subtitle: "Approve or reject student swap and drop requests." },
     { id: "messages", label: "Messages", subtitle: "Coordinate staffing updates through group, DM, and shift threads." },
-    { id: "settings", label: "Settings", subtitle: "Manage manager notification preferences." },
+    { id: "settings", label: "Settings", subtitle: "Choose alert channels for notifications." },
   ],
   student: [
     { id: "overview", label: "Overview", subtitle: "Track confirmations and key shift notifications." },
@@ -43,7 +43,7 @@ const navConfigByRole = {
     { id: "requests", label: "Requests", subtitle: "Review your swap and drop request history." },
     { id: "availability", label: "Availability", subtitle: "Maintain your 30-minute class busy-slot schedule." },
     { id: "messages", label: "Messages", subtitle: "Chat with the team, manager, or shift-specific thread." },
-    { id: "settings", label: "Settings", subtitle: "Update personal notification preferences." },
+    { id: "settings", label: "Settings", subtitle: "Choose alert channels for notifications." },
   ],
 };
 
@@ -92,7 +92,8 @@ const el = {
   upcomingShifts: document.getElementById("upcomingShifts"),
   studentRequests: document.getElementById("studentRequests"),
   studentNotifications: document.getElementById("studentNotifications"),
-  smsToggle: document.getElementById("smsToggle"),
+  studentSmsToggle: document.getElementById("studentSmsToggle"),
+  studentSlackToggle: document.getElementById("studentSlackToggle"),
   availabilityEditor: document.getElementById("availabilityEditor"),
   saveAvailabilityBtn: document.getElementById("saveAvailabilityBtn"),
   availabilityResult: document.getElementById("availabilityResult"),
@@ -504,7 +505,8 @@ function renderStudentView() {
   const dashboard = state.dashboard;
   const students = state.users.filter((user) => user.role === "student" && user.id !== state.user.id);
 
-  el.smsToggle.checked = Boolean(state.user.notificationPrefs?.smsOptIn);
+  el.studentSmsToggle.checked = Boolean(state.user.notificationPrefs?.smsOptIn);
+  el.studentSlackToggle.checked = Boolean(state.user.notificationPrefs?.slackOptIn);
 
   renderList(
     el.confirmationTasks,
@@ -1280,11 +1282,23 @@ el.upcomingShifts.addEventListener("click", async (event) => {
   }
 });
 
-el.smsToggle.addEventListener("change", async () => {
+el.studentSmsToggle.addEventListener("change", async () => {
   try {
     const result = await api("/api/me/notification-prefs", {
       method: "PATCH",
-      body: { smsOptIn: el.smsToggle.checked },
+      body: { smsOptIn: el.studentSmsToggle.checked },
+    });
+    state.user.notificationPrefs = result.notificationPrefs;
+  } catch (error) {
+    showError(error.message);
+  }
+});
+
+el.studentSlackToggle.addEventListener("change", async () => {
+  try {
+    const result = await api("/api/me/notification-prefs", {
+      method: "PATCH",
+      body: { slackOptIn: el.studentSlackToggle.checked },
     });
     state.user.notificationPrefs = result.notificationPrefs;
   } catch (error) {

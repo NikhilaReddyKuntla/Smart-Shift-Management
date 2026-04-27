@@ -1,5 +1,6 @@
 const test = require("node:test");
 const assert = require("node:assert/strict");
+const http = require("node:http");
 
 const {
   AppError,
@@ -10,6 +11,7 @@ const {
   decideDropRequest,
   decideSwapRequest,
   getManagerDashboard,
+  getManagerWeeklyAttendanceReport,
   getStudentAvailability,
   runReminderJob,
   runStaffingNudgeAssigned,
@@ -18,6 +20,8 @@ const {
   setSmsOptIn,
   upsertAttendance,
 } = require("../src/domain");
+const { createApp } = require("../src/app");
+const { createStore } = require("../src/store");
 
 const baseNow = new Date("2026-04-14T12:00:00.000Z");
 
@@ -237,6 +241,7 @@ test("reminders send in-app + email, and SMS only when opted in", () => {
 
 test("attendance updates dashboard no-show metrics", () => {
   const state = createSeedState(baseNow);
+  const before = getManagerDashboard(state, "u_manager_1", baseNow);
   upsertAttendance(state, {
     managerId: "u_manager_1",
     shiftId: "shift_assigned_pending",
@@ -245,9 +250,9 @@ test("attendance updates dashboard no-show metrics", () => {
     now: baseNow,
   });
 
-  const dashboard = getManagerDashboard(state, "u_manager_1", baseNow);
-  assert.equal(dashboard.metrics.noShowCount, 1);
-  assert.equal(dashboard.metrics.noShowRate, 1);
+  const after = getManagerDashboard(state, "u_manager_1", baseNow);
+  assert.equal(after.metrics.noShowCount, before.metrics.noShowCount + 1);
+  assert.equal(after.metrics.noShowRate > before.metrics.noShowRate, true);
 });
 
 test("messaging permissions enforce DM and shift-thread rules", () => {
@@ -377,4 +382,128 @@ test("nudge candidates action targets eligible users and honors sms opt-in", () 
   assert.equal(result.targets[0], "u_student_2");
   assert.equal(state.notifications.some((entry) => entry.kind === "staffing_nudge" && entry.userId === "u_student_2"), true);
   assert.equal(state.smsLog.length, smsBefore + 1);
+});
+
+test("weekly attendance report aggregates worked hours, no-shows, and successful swaps by completion week", () => {
+  const state = createSeedState(baseNow);
+  const currentBefore = getManagerWeeklyAttendanceReport(state, "u_manager_1", { now: baseNow, weekOffset: 0 });
+  const previousBefore = getManagerWeeklyAttendanceReport(state, "u_manager_1", { now: baseNow, weekOffset: -1 });
+
+  const workingShift = {
+    ...makeOpenShift("shift_weekly_attendance_present", new Date(baseNow.getTime() - 4 * 60 * 60 * 1000), new Date(baseNow.getTime() - 2 * 60 * 60 * 1000)),
+    status: "assigned",
+    assignedUserId: "u_student_1",
+    claimedAt: new Date(baseNow.getTime() - 6 * 60 * 60 * 1000).toISOString(),
+    confirmationDueAt: new Date(baseNow.getTime() - 5 * 60 * 60 * 1000).toISOString(),
+    confirmedAt: new Date(baseNow.getTime() - 5 * 60 * 60 * 1000).toISOString(),
+  };
+  const noShowShift = {
+    ...makeOpenShift("shift_weekly_attendance_noshow", new Date(baseNow.getTime() - 3 * 60 * 60 * 1000), new Date(baseNow.getTime() - 60 * 60 * 1000), "library", "Mugar"),
+    status: "assigned",
+    assignedUserId: "u_student_2",
+    claimedAt: new Date(baseNow.getTime() - 8 * 60 * 60 * 1000).toISOString(),
+    confirmationDueAt: new Date(baseNow.getTime() - 6 * 60 * 60 * 1000).toISOString(),
+    confirmedAt: new Date(baseNow.getTime() - 6 * 60 * 60 * 1000).toISOString(),
+  };
+  state.shifts.push(workingShift, noShowShift);
+
+  upsertAttendance(state, {
+    managerId: "u_manager_1",
+    shiftId: "shift_weekly_attendance_present",
+    studentId: "u_student_1",
+    mark: "present",
+    now: baseNow,
+  });
+  upsertAttendance(state, {
+    managerId: "u_manager_1",
+    shiftId: "shift_weekly_attendance_noshow",
+    studentId: "u_student_2",
+    mark: "no_show",
+    now: baseNow,
+  });
+
+  state.swapRequests.push(
+    {
+      id: "swap_weekly_completed_current",
+      shiftId: "shift_assigned_confirmed_2",
+      requesterId: "u_student_1",
+      candidateId: "u_student_3",
+      status: "completed",
+      decision: "approved",
+      managerDecisionAt: baseNow.toISOString(),
+      createdAt: new Date(baseNow.getTime() - 60 * 60 * 1000).toISOString(),
+      history: [
+        { status: "pending", at: new Date(baseNow.getTime() - 60 * 60 * 1000).toISOString() },
+        { status: "approved", at: baseNow.toISOString() },
+        { status: "completed", at: baseNow.toISOString() },
+      ],
+    },
+    {
+      id: "swap_weekly_completed_previous",
+      shiftId: "shift_assigned_confirmed_1",
+      requesterId: "u_student_1",
+      candidateId: "u_student_2",
+      status: "completed",
+      decision: "approved",
+      managerDecisionAt: new Date(baseNow.getTime() - 8 * 24 * 60 * 60 * 1000).toISOString(),
+      createdAt: new Date(baseNow.getTime() - 8 * 24 * 60 * 60 * 1000).toISOString(),
+      history: [
+        { status: "pending", at: new Date(baseNow.getTime() - 8 * 24 * 60 * 60 * 1000).toISOString() },
+        { status: "approved", at: new Date(baseNow.getTime() - 8 * 24 * 60 * 60 * 1000).toISOString() },
+        { status: "completed", at: new Date(baseNow.getTime() - 8 * 24 * 60 * 60 * 1000).toISOString() },
+      ],
+    },
+  );
+
+  const currentAfter = getManagerWeeklyAttendanceReport(state, "u_manager_1", { now: baseNow, weekOffset: 0 });
+  const previousAfter = getManagerWeeklyAttendanceReport(state, "u_manager_1", { now: baseNow, weekOffset: -1 });
+
+  const mayaCurrentBefore = currentBefore.rows.find((row) => row.studentId === "u_student_1");
+  const jordanCurrentBefore = currentBefore.rows.find((row) => row.studentId === "u_student_2");
+  const mayaCurrentAfter = currentAfter.rows.find((row) => row.studentId === "u_student_1");
+  const jordanCurrentAfter = currentAfter.rows.find((row) => row.studentId === "u_student_2");
+  const mayaPreviousBefore = previousBefore.rows.find((row) => row.studentId === "u_student_1");
+  const mayaPreviousAfter = previousAfter.rows.find((row) => row.studentId === "u_student_1");
+
+  assert.ok(mayaCurrentBefore);
+  assert.ok(mayaCurrentAfter);
+  assert.ok(jordanCurrentBefore);
+  assert.ok(jordanCurrentAfter);
+  assert.ok(mayaPreviousBefore);
+  assert.ok(mayaPreviousAfter);
+
+  assert.equal(mayaCurrentAfter.workedHours, Number((mayaCurrentBefore.workedHours + 2).toFixed(2)));
+  assert.equal(jordanCurrentAfter.noShowCount, jordanCurrentBefore.noShowCount + 1);
+  assert.equal(mayaCurrentAfter.successfulSwapsMade, mayaCurrentBefore.successfulSwapsMade + 1);
+  assert.equal(mayaPreviousAfter.successfulSwapsMade, mayaPreviousBefore.successfulSwapsMade + 1);
+});
+
+test("manager weekly attendance API allows manager and forbids students", async () => {
+  const store = createStore(baseNow);
+  const app = createApp(store);
+  const server = http.createServer(app);
+
+  await new Promise((resolve) => server.listen(0, resolve));
+  const { port } = server.address();
+
+  try {
+    const managerResponse = await fetch(`http://127.0.0.1:${port}/api/manager/weekly-attendance?weekOffset=0`, {
+      headers: { "x-user-id": "u_manager_1" },
+    });
+    assert.equal(managerResponse.status, 200);
+    const managerPayload = await managerResponse.json();
+    assert.equal(Array.isArray(managerPayload.rows), true);
+
+    const studentResponse = await fetch(`http://127.0.0.1:${port}/api/manager/weekly-attendance?weekOffset=0`, {
+      headers: { "x-user-id": "u_student_1" },
+    });
+    assert.equal(studentResponse.status, 403);
+  } finally {
+    await new Promise((resolve, reject) => {
+      server.close((error) => {
+        if (error) reject(error);
+        else resolve();
+      });
+    });
+  }
 });

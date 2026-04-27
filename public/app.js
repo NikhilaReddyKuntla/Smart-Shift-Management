@@ -17,6 +17,8 @@
     risk: "all",
     query: "",
   },
+  managerAttendanceWeekOffset: 0,
+  managerWeeklyAttendance: null,
   availabilityBusyCells: new Set(),
   availabilityPaint: {
     active: false,
@@ -33,6 +35,7 @@ const navConfigByRole = {
   manager: [
     { id: "overview", label: "Overview", subtitle: "Staffing health, no-show risk, and confirmation status." },
     { id: "shifts", label: "Shifts", subtitle: "Publish upcoming shifts and record attendance outcomes." },
+    { id: "weekly-attendance", label: "Weekly Attendance", subtitle: "Track weekly worked hours and attendance outcomes." },
     { id: "requests", label: "Requests", subtitle: "Approve or reject student swap and drop requests." },
     { id: "messages", label: "Messages", subtitle: "Coordinate staffing updates through group, DM, and shift threads." },
     { id: "settings", label: "Settings", subtitle: "Choose alert channels for notifications." },
@@ -64,6 +67,7 @@ const el = {
   managerOverview: document.getElementById("managerOverview"),
   studentOverview: document.getElementById("studentOverview"),
   managerShifts: document.getElementById("managerShifts"),
+  managerWeeklyAttendancePanel: document.getElementById("managerWeeklyAttendancePanel"),
   studentShifts: document.getElementById("studentShifts"),
   managerRequests: document.getElementById("managerRequests"),
   studentRequestsPanel: document.getElementById("studentRequestsPanel"),
@@ -85,6 +89,10 @@ const el = {
   pendingDrops: document.getElementById("pendingDrops"),
   noShowRisk: document.getElementById("noShowRisk"),
   attendanceList: document.getElementById("attendanceList"),
+  weeklyAttendanceRange: document.getElementById("weeklyAttendanceRange"),
+  weeklyAttendanceTable: document.getElementById("weeklyAttendanceTable"),
+  weeklyAttendancePrevBtn: document.getElementById("weeklyAttendancePrevBtn"),
+  weeklyAttendanceNextBtn: document.getElementById("weeklyAttendanceNextBtn"),
   managerSmsToggle: document.getElementById("managerSmsToggle"),
   managerSlackToggle: document.getElementById("managerSlackToggle"),
   confirmationTasks: document.getElementById("confirmationTasks"),
@@ -158,6 +166,33 @@ function prettyDate(isoString) {
     hour: "numeric",
     minute: "2-digit",
   });
+}
+
+function parseDateKeyToUtc(dateKey) {
+  if (!dateKey) return null;
+  const [year, month, day] = String(dateKey)
+    .split("-")
+    .map((value) => Number(value));
+  if (!Number.isInteger(year) || !Number.isInteger(month) || !Number.isInteger(day)) {
+    return null;
+  }
+  return new Date(Date.UTC(year, month - 1, day));
+}
+
+function prettyWeekDate(dateKey) {
+  const date = parseDateKeyToUtc(dateKey);
+  if (!date) return String(dateKey || "");
+  return date.toLocaleDateString(undefined, {
+    weekday: "short",
+    month: "short",
+    day: "numeric",
+    timeZone: "UTC",
+  });
+}
+
+function formatHours(value) {
+  const numeric = Number(value || 0);
+  return numeric % 1 === 0 ? String(numeric) : numeric.toFixed(2);
 }
 
 function mergeMessages(primary, secondary) {
@@ -499,6 +534,55 @@ function renderManagerView() {
     `,
     "No assigned shifts to mark yet.",
   );
+
+  renderManagerWeeklyAttendance();
+}
+
+function renderManagerWeeklyAttendance() {
+  const report = state.managerWeeklyAttendance;
+  if (!report) {
+    el.weeklyAttendanceRange.textContent = "Loading weekly attendance...";
+    el.weeklyAttendanceTable.innerHTML = "";
+    return;
+  }
+
+  el.weeklyAttendanceRange.textContent = `${prettyWeekDate(report.weekStart)} - ${prettyWeekDate(report.weekEnd)} (${report.timeZone})`;
+
+  if (!Array.isArray(report.rows) || report.rows.length === 0) {
+    el.weeklyAttendanceTable.innerHTML = `<p class="hint">No student attendance data found for this week.</p>`;
+    return;
+  }
+
+  const rows = report.rows
+    .map(
+      (row) => `
+      <tr>
+        <td>${row.studentName}</td>
+        <td>${formatHours(row.workedHours)}</td>
+        <td>${row.weeklyCap}</td>
+        <td>${row.noShowCount}</td>
+        <td>${row.successfulSwapsMade}</td>
+      </tr>
+    `,
+    )
+    .join("");
+
+  el.weeklyAttendanceTable.innerHTML = `
+    <div class="weekly-attendance-wrap">
+      <table class="weekly-attendance-table">
+        <thead>
+          <tr>
+            <th>Student</th>
+            <th>Worked Hours</th>
+            <th>Weekly Cap</th>
+            <th>No-show Count</th>
+            <th>Successful Swaps Made</th>
+          </tr>
+        </thead>
+        <tbody>${rows}</tbody>
+      </table>
+    </div>
+  `;
 }
 
 function renderStudentView() {
@@ -732,6 +816,7 @@ function applyRolePanels() {
   setVisible(el.managerOverview, isManager);
   setVisible(el.studentOverview, !isManager);
   setVisible(el.managerShifts, isManager);
+  setVisible(el.managerWeeklyAttendancePanel, isManager);
   setVisible(el.studentShifts, !isManager);
   setVisible(el.managerRequests, isManager);
   setVisible(el.studentRequestsPanel, !isManager);
@@ -1011,6 +1096,13 @@ async function refreshMessages() {
   renderChatHeader();
   renderChatMessages(getActiveConversationMessages());
 }
+
+async function fetchManagerWeeklyAttendanceReport() {
+  const report = await api(`/api/manager/weekly-attendance?weekOffset=${state.managerAttendanceWeekOffset}`);
+  state.managerWeeklyAttendance = report;
+  renderManagerWeeklyAttendance();
+}
+
 async function refreshDashboard() {
   showError("");
   const [meRes, shiftsRes] = await Promise.all([api("/api/me"), api("/api/shifts")]);
@@ -1023,9 +1115,14 @@ async function refreshDashboard() {
   applyRolePanels();
 
   if (state.user.role === "manager") {
-    const [dashboard, pending] = await Promise.all([api("/api/dashboard/manager"), api("/api/requests/pending")]);
+    const [dashboard, pending, weeklyAttendance] = await Promise.all([
+      api("/api/dashboard/manager"),
+      api("/api/requests/pending"),
+      api(`/api/manager/weekly-attendance?weekOffset=${state.managerAttendanceWeekOffset}`),
+    ]);
     state.dashboard = dashboard;
     state.pending = pending;
+    state.managerWeeklyAttendance = weeklyAttendance;
     renderManagerView();
   } else {
     const [dashboard, availability] = await Promise.all([api("/api/dashboard/student"), api("/api/availability")]);
@@ -1056,6 +1153,8 @@ async function login(email, password) {
   state.groupMessagesCache = [];
   state.dmMessagesCache = [];
   state.shiftThreadCache = {};
+  state.managerAttendanceWeekOffset = 0;
+  state.managerWeeklyAttendance = null;
   setAuthLayout(true);
 
   await refreshDashboard();
@@ -1071,6 +1170,8 @@ function logout() {
   state.groupMessagesCache = [];
   state.dmMessagesCache = [];
   state.shiftThreadCache = {};
+  state.managerAttendanceWeekOffset = 0;
+  state.managerWeeklyAttendance = null;
   state.activeConversation = { channelType: "group", peerId: null, threadId: null };
   el.messageFeed.innerHTML = "";
   setAuthLayout(false);
@@ -1181,6 +1282,34 @@ el.attendanceList.addEventListener("click", async (event) => {
       },
     });
     await refreshDashboard();
+  } catch (error) {
+    showError(error.message);
+  }
+});
+
+async function shiftManagerAttendanceWeek(delta) {
+  if (!state.user || state.user.role !== "manager") return;
+  const previousOffset = state.managerAttendanceWeekOffset;
+  state.managerAttendanceWeekOffset += delta;
+  try {
+    await fetchManagerWeeklyAttendanceReport();
+  } catch (error) {
+    state.managerAttendanceWeekOffset = previousOffset;
+    throw error;
+  }
+}
+
+el.weeklyAttendancePrevBtn.addEventListener("click", async () => {
+  try {
+    await shiftManagerAttendanceWeek(-1);
+  } catch (error) {
+    showError(error.message);
+  }
+});
+
+el.weeklyAttendanceNextBtn.addEventListener("click", async () => {
+  try {
+    await shiftManagerAttendanceWeek(1);
   } catch (error) {
     showError(error.message);
   }

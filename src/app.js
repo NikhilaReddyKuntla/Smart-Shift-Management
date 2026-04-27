@@ -14,6 +14,7 @@ const {
   decideSwapRequest,
   evaluateStudentForShift,
   getManagerDashboard,
+  getManagerWeeklyAttendanceReport,
   getMessagesForUser,
   getNotificationsForUser,
   getShiftById,
@@ -331,6 +332,22 @@ function createApp(store = defaultStore) {
         pendingDropRequests: dashboard.pendingDropRequests.map((request) => enrichDropRequest(state, request)),
         upcomingShifts: dashboard.upcomingShifts.map((shift) => enrichShift(state, shift)),
       });
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  app.get("/api/manager/weekly-attendance", requireUser, requireRole(ROLE.MANAGER), (req, res, next) => {
+    try {
+      const weekOffset = req.query.weekOffset === undefined ? 0 : Number(req.query.weekOffset);
+      if (!Number.isInteger(weekOffset)) {
+        throw new AppError(400, "weekOffset must be an integer", "INVALID_WEEK_OFFSET");
+      }
+      const report = getManagerWeeklyAttendanceReport(getState(), req.user.id, {
+        now: new Date(),
+        weekOffset,
+      });
+      res.json(report);
     } catch (error) {
       next(error);
     }

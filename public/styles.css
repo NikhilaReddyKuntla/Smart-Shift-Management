@@ -700,6 +700,41 @@ button.danger {
   background: #74bda7;
 }
 
+.weekly-attendance-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.8rem;
+  margin-bottom: 0.5rem;
+}
+
+.weekly-attendance-wrap {
+  margin-top: 0.55rem;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  overflow: auto;
+}
+
+.weekly-attendance-table {
+  width: 100%;
+  min-width: 620px;
+  border-collapse: collapse;
+}
+
+.weekly-attendance-table th,
+.weekly-attendance-table td {
+  border: 1px solid #d2e0e6;
+  padding: 0.42rem 0.5rem;
+  text-align: left;
+  font-size: 0.82rem;
+}
+
+.weekly-attendance-table th {
+  background: #f4fafc;
+  color: #0f2c3c;
+  font-weight: 700;
+}
+
 table {
   width: 100%;
   border-collapse: collapse;

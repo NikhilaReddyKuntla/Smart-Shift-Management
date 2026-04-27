@@ -23,6 +23,17 @@ const STAFFING_ACTION = {
 };
 
 const STAFFING_ACTION_COOLDOWN_MS = 2 * 60 * 60 * 1000;
+const BU_TIME_ZONE = "America/New_York";
+const DAY_MS = 24 * 60 * 60 * 1000;
+const WEEKDAY_TO_INDEX = {
+  Sun: 0,
+  Mon: 1,
+  Tue: 2,
+  Wed: 3,
+  Thu: 4,
+  Fri: 5,
+  Sat: 6,
+};
 
 class AppError extends Error {
   constructor(status, message, code = "APP_ERROR", details = undefined) {
@@ -93,6 +104,70 @@ function getWeekStartKey(dateValue) {
   date.setUTCDate(date.getUTCDate() - diffToMonday);
   date.setUTCHours(0, 0, 0, 0);
   return date.toISOString();
+}
+
+function padTwo(value) {
+  return String(value).padStart(2, "0");
+}
+
+function toDateKeyFromPseudoDate(dateValue) {
+  const date = toDate(dateValue);
+  return `${date.getUTCFullYear()}-${padTwo(date.getUTCMonth() + 1)}-${padTwo(date.getUTCDate())}`;
+}
+
+function getTimeZoneDateParts(dateValue, timeZone = BU_TIME_ZONE) {
+  const date = toDate(dateValue);
+  const parts = new Intl.DateTimeFormat("en-US", {
+    timeZone,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    weekday: "short",
+  }).formatToParts(date);
+
+  const mapped = {};
+  for (const part of parts) {
+    if (part.type === "literal") continue;
+    mapped[part.type] = part.value;
+  }
+
+  const dayOfWeek = WEEKDAY_TO_INDEX[mapped.weekday];
+  if (dayOfWeek === undefined) {
+    throw new AppError(500, "Unable to resolve weekday in configured timezone", "WEEKDAY_RESOLUTION_FAILED");
+  }
+
+  return {
+    year: Number(mapped.year),
+    month: Number(mapped.month),
+    day: Number(mapped.day),
+    dayOfWeek,
+  };
+}
+
+function getPseudoWeekStartDateFromTimeZoneParts(parts) {
+  const localDayMs = Date.UTC(parts.year, parts.month - 1, parts.day);
+  const diffToMonday = (parts.dayOfWeek + 6) % 7;
+  return new Date(localDayMs - diffToMonday * DAY_MS);
+}
+
+function getTimeZoneWeekStartKey(dateValue, timeZone = BU_TIME_ZONE) {
+  const parts = getTimeZoneDateParts(dateValue, timeZone);
+  return toDateKeyFromPseudoDate(getPseudoWeekStartDateFromTimeZoneParts(parts));
+}
+
+function getTimeZoneWeekRange(nowValue, weekOffset = 0, timeZone = BU_TIME_ZONE) {
+  const now = toDate(nowValue);
+  if (!Number.isInteger(weekOffset)) {
+    throw new AppError(400, "weekOffset must be an integer", "INVALID_WEEK_OFFSET", { weekOffset });
+  }
+  const nowParts = getTimeZoneDateParts(now, timeZone);
+  const currentWeekStart = getPseudoWeekStartDateFromTimeZoneParts(nowParts);
+  const weekStart = new Date(currentWeekStart.getTime() + weekOffset * 7 * DAY_MS);
+  const weekEnd = new Date(weekStart.getTime() + 6 * DAY_MS);
+  return {
+    weekStartKey: toDateKeyFromPseudoDate(weekStart),
+    weekEndKey: toDateKeyFromPseudoDate(weekEnd),
+  };
 }
 
 function computeConfirmationDueAt(startAt, nowValue) {
@@ -1154,6 +1229,84 @@ function getManagerDashboard(state, managerId, nowValue) {
   };
 }
 
+function getSwapCompletionAt(request) {
+  if (!request || request.status !== "completed") return null;
+  const completedHistory = Array.isArray(request.history)
+    ? [...request.history].reverse().find((entry) => entry.status === "completed" && entry.at)
+    : null;
+  return completedHistory?.at || request.managerDecisionAt || null;
+}
+
+function isSuccessfulCompletedSwap(request) {
+  if (!request || request.status !== "completed") return false;
+  if (request.decision) return request.decision === "approved";
+  return Array.isArray(request.history) && request.history.some((entry) => entry.status === "approved");
+}
+
+function getManagerWeeklyAttendanceReport(state, managerId, payload = {}) {
+  const manager = getUserById(state, managerId);
+  ensureRole(manager, ROLE.MANAGER);
+
+  const now = toDate(payload.now || new Date());
+  const weekOffset = payload.weekOffset === undefined ? 0 : Number(payload.weekOffset);
+  if (!Number.isInteger(weekOffset)) {
+    throw new AppError(400, "weekOffset must be an integer", "INVALID_WEEK_OFFSET", { weekOffset: payload.weekOffset });
+  }
+
+  const { weekStartKey, weekEndKey } = getTimeZoneWeekRange(now, weekOffset, BU_TIME_ZONE);
+  const inSelectedWeek = (dateValue) => Boolean(dateValue) && getTimeZoneWeekStartKey(dateValue, BU_TIME_ZONE) === weekStartKey;
+
+  const shiftsById = new Map(state.shifts.map((shift) => [shift.id, shift]));
+  const students = state.users
+    .filter((user) => user.role === ROLE.STUDENT)
+    .sort((a, b) => a.name.localeCompare(b.name));
+
+  const rows = students.map((student) => {
+    let workedHours = 0;
+    let noShowCount = 0;
+    for (const record of state.attendance) {
+      if (record.studentId !== student.id) continue;
+      if (!inSelectedWeek(record.markedAt)) continue;
+
+      if (record.mark === ATTENDANCE_MARK.NO_SHOW) {
+        noShowCount += 1;
+        continue;
+      }
+      if (record.mark !== ATTENDANCE_MARK.PRESENT) continue;
+
+      const shift = shiftsById.get(record.shiftId);
+      if (!shift) continue;
+      workedHours += getDurationHours(shift.startAt, shift.endAt);
+    }
+
+    let successfulSwapsMade = 0;
+    for (const request of state.swapRequests) {
+      if (request.requesterId !== student.id) continue;
+      if (!isSuccessfulCompletedSwap(request)) continue;
+      const completedAt = getSwapCompletionAt(request);
+      if (!inSelectedWeek(completedAt)) continue;
+      successfulSwapsMade += 1;
+    }
+
+    return {
+      studentId: student.id,
+      studentName: student.name,
+      workedHours: Number(workedHours.toFixed(2)),
+      weeklyCap: student.weeklyHourCap,
+      noShowCount,
+      successfulSwapsMade,
+    };
+  });
+
+  return {
+    weekOffset,
+    weekStart: weekStartKey,
+    weekEnd: weekEndKey,
+    timeZone: BU_TIME_ZONE,
+    rows,
+  };
+}
+
 function getStudentDashboard(state, studentId, nowValue) {
   const student = getUserById(state, studentId);
   ensureRole(student, ROLE.STUDENT);
@@ -1413,6 +1566,34 @@ function createSeedState(nowValue = new Date()) {
       reminderSentAt: plusDays(-1, 8, 0),
       createdBy: manager.id,
     },
+    {
+      id: "shift_completed_2",
+      startAt: plusDays(-3, 11, 0),
+      endAt: plusDays(-3, 13, 0),
+      roleNeeded: "front_desk",
+      location: "George Sherman Union",
+      status: "completed",
+      assignedUserId: studentA.id,
+      claimedAt: plusDays(-4, 10, 0),
+      confirmationDueAt: computeConfirmationDueAt(plusDays(-3, 11, 0), now),
+      confirmedAt: plusDays(-3, 8, 30),
+      reminderSentAt: plusDays(-3, 7, 0),
+      createdBy: manager.id,
+    },
+    {
+      id: "shift_completed_3",
+      startAt: plusDays(-2, 9, 0),
+      endAt: plusDays(-2, 11, 0),
+      roleNeeded: "library",
+      location: "Mugar Memorial Library",
+      status: "completed",
+      assignedUserId: studentC.id,
+      claimedAt: plusDays(-3, 14, 0),
+      confirmationDueAt: computeConfirmationDueAt(plusDays(-2, 9, 0), now),
+      confirmedAt: plusDays(-2, 6, 0),
+      reminderSentAt: plusDays(-2, 5, 0),
+      createdBy: manager.id,
+    },
   ];
 
   const classConflictDay = toDate(plusDays(1, 0, 0)).getUTCDay();
@@ -1457,13 +1638,44 @@ function createSeedState(nowValue = new Date()) {
       id: id(),
       shiftId: "shift_completed_1",
       studentId: studentB.id,
-      mark: ATTENDANCE_MARK.EXCUSED,
+      mark: ATTENDANCE_MARK.PRESENT,
       markedBy: manager.id,
-      markedAt: minusHours(12),
+      markedAt: now.toISOString(),
+    },
+    {
+      id: id(),
+      shiftId: "shift_completed_2",
+      studentId: studentA.id,
+      mark: ATTENDANCE_MARK.PRESENT,
+      markedBy: manager.id,
+      markedAt: now.toISOString(),
+    },
+    {
+      id: id(),
+      shiftId: "shift_completed_3",
+      studentId: studentC.id,
+      mark: ATTENDANCE_MARK.PRESENT,
+      markedBy: manager.id,
+      markedAt: now.toISOString(),
     },
   ];
 
   const swapRequests = [
+    {
+      id: "swap_seed_completed_1",
+      shiftId: "shift_assigned_confirmed_2",
+      requesterId: studentA.id,
+      candidateId: studentC.id,
+      status: "completed",
+      history: [
+        { status: "pending", at: minusHours(22) },
+        { status: "approved", at: now.toISOString() },
+        { status: "completed", at: now.toISOString() },
+      ],
+      managerDecisionAt: now.toISOString(),
+      decision: "approved",
+      createdAt: minusHours(22),
+    },
     {
       id: "swap_seed_pending_1",
       shiftId: "shift_assigned_pending_3",
@@ -1636,6 +1848,7 @@ module.exports = {
   decideSwapRequest,
   evaluateStudentForShift,
   getManagerDashboard,
+  getManagerWeeklyAttendanceReport,
   getMessagesForUser,
   getNotificationsForUser,
   getStudentAvailability,

@@ -546,7 +546,7 @@ function renderManagerWeeklyAttendance() {
     return;
   }
 
-  el.weeklyAttendanceRange.textContent = `${prettyWeekDate(report.weekStart)} - ${prettyWeekDate(report.weekEnd)} (${report.timeZone})`;
+  el.weeklyAttendanceRange.textContent = `${prettyWeekDate(report.weekStart)} - ${prettyWeekDate(report.weekEnd)}`;
 
   if (!Array.isArray(report.rows) || report.rows.length === 0) {
     el.weeklyAttendanceTable.innerHTML = `<p class="hint">No student attendance data found for this week.</p>`;

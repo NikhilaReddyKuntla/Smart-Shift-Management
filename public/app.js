@@ -378,7 +378,7 @@ function renderStaffingCopilot(dashboard) {
     (item) => `
       <div class="list-item">
         <div class="item-title">${item.roleNeeded} · ${item.location}</div>
-        <div class="item-meta">${prettyDate(item.startAt)} · Score: ${item.fillRiskScore} ${riskBadge(item.riskLevel)}</div>
+        <div class="item-meta">${prettyDate(item.startAt)} · Risk: ${riskBadge(item.riskLevel)}</div>
         <div class="item-meta">Reasons: ${item.reasons.length ? item.reasons.join(" | ") : "Stable staffing conditions."}</div>
         <div class="item-actions">
           ${item.recommendedActions
@@ -414,7 +414,7 @@ function renderManagerUpcomingShifts(dashboard) {
     filtered,
     (shift) => {
       const copilotItem = getCopilotItemByShiftId(shift.id);
-      const risk = copilotItem ? `${copilotItem.fillRiskScore} ${riskBadge(copilotItem.riskLevel)}` : "n/a";
+      const risk = copilotItem ? riskBadge(copilotItem.riskLevel) : "n/a";
       return `
         <div class="list-item">
           <div class="item-title">${shift.roleNeeded} · ${shift.location}</div>
